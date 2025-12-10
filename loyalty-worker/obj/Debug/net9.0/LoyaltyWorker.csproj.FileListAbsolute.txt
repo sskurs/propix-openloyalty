@@ -1,0 +1,5 @@
+D:\Development\open-loyalty-program\loyalty-worker\obj\Debug\net9.0\LoyaltyWorker.csproj.AssemblyReference.cache
+D:\Development\open-loyalty-program\loyalty-worker\obj\Debug\net9.0\LoyaltyWorker.GeneratedMSBuildEditorConfig.editorconfig
+D:\Development\open-loyalty-program\loyalty-worker\obj\Debug\net9.0\LoyaltyWorker.AssemblyInfoInputs.cache
+D:\Development\open-loyalty-program\loyalty-worker\obj\Debug\net9.0\LoyaltyWorker.AssemblyInfo.cs
+D:\Development\open-loyalty-program\loyalty-worker\obj\Debug\net9.0\LoyaltyWorker.csproj.CoreCompileInputs.cache

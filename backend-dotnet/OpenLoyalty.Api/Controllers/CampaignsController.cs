@@ -4,7 +4,6 @@ using OpenLoyalty.Api.Data;
 using OpenLoyalty.Api.Models;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace OpenLoyalty.Api.Controllers
@@ -24,7 +23,7 @@ namespace OpenLoyalty.Api.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Campaign>>> GetCampaigns()
         {
-            return await _context.Campaigns.ToListAsync();
+            return await _context.Campaigns.AsNoTracking().ToListAsync();
         }
 
         // GET: api/Campaigns/5
@@ -32,23 +31,50 @@ namespace OpenLoyalty.Api.Controllers
         public async Task<ActionResult<Campaign>> GetCampaign(Guid id)
         {
             var campaign = await _context.Campaigns.FindAsync(id);
-
-            if (campaign == null)
-            {
-                return NotFound();
-            }
-
+            if (campaign == null) return NotFound();
             return campaign;
         }
 
         // POST: api/Campaigns
         [HttpPost]
-        public async Task<ActionResult<Campaign>> PostCampaign(Campaign campaign)
+        public async Task<ActionResult<Campaign>> PostCampaign(CreateCampaignDto createCampaignDto)
         {
-            _context.Campaigns.Add(campaign);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var newCampaign = new Campaign
+            {
+                Name = createCampaignDto.Name,
+                Description = createCampaignDto.Description,
+                Status = createCampaignDto.Status,
+                ValidFrom = createCampaignDto.ValidFrom,
+                ValidTo = createCampaignDto.ValidTo
+            };
+
+            _context.Campaigns.Add(newCampaign);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction("GetCampaign", new { id = campaign.Id }, campaign);
+            return CreatedAtAction(nameof(GetCampaign), new { id = newCampaign.Id }, newCampaign);
+        }
+
+        // PUT: api/Campaigns/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutCampaign(Guid id, Campaign campaign)
+        {
+            if (id != campaign.Id) return BadRequest();
+            _context.Entry(campaign).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        // DELETE: api/Campaigns/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCampaign(Guid id)
+        {
+            var campaign = await _context.Campaigns.FindAsync(id);
+            if (campaign == null) return NotFound();
+            _context.Campaigns.Remove(campaign);
+            await _context.SaveChangesAsync();
+            return NoContent();
         }
     }
 }

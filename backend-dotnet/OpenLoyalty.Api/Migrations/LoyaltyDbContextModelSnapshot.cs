@@ -69,53 +69,33 @@ namespace OpenLoyalty.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("ConditionRules")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Description")
                         .HasColumnType("longtext");
 
-                    b.Property<DateTime?>("EndDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("EventType")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Limits")
-                        .HasColumnType("longtext");
-
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("RewardRules")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime?>("StartDate")
-                        .HasColumnType("datetime(6)");
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("TargetSegment")
-                        .HasColumnType("longtext");
-
                     b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ValidFrom")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ValidTo")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 
-                    b.ToTable("campaign", (string)null);
+                    b.ToTable("campaigns", (string)null);
                 });
 
             modelBuilder.Entity("OpenLoyalty.Api.Models.CampaignLog", b =>
@@ -231,6 +211,79 @@ namespace OpenLoyalty.Api.Migrations
                     b.ToTable("coupon", (string)null);
                 });
 
+            modelBuilder.Entity("OpenLoyalty.Api.Models.EarningRule", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime?>("ActivateAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ConditionJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CronExpression")
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("DeactivateAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("LimitsJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<string>("PointsJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SegmentsJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("TimeWindowJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("earning_rules", (string)null);
+                });
+
             modelBuilder.Entity("OpenLoyalty.Api.Models.Member", b =>
                 {
                     b.Property<Guid>("Id")
@@ -244,12 +297,14 @@ namespace OpenLoyalty.Api.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("Email")
+                        .IsRequired()
                         .HasColumnType("varchar(255)");
 
                     b.Property<string>("ExternalId")
                         .HasColumnType("longtext");
 
                     b.Property<string>("FirstName")
+                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("Gender")
@@ -259,6 +314,7 @@ namespace OpenLoyalty.Api.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<string>("LastName")
+                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("Phone")
@@ -268,7 +324,7 @@ namespace OpenLoyalty.Api.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<Guid?>("TierId")
+                    b.Property<Guid>("TierId")
                         .HasColumnType("char(36)");
 
                     b.Property<DateTime>("UpdatedAt")
@@ -399,6 +455,40 @@ namespace OpenLoyalty.Api.Migrations
                     b.ToTable("member_tier_history", (string)null);
                 });
 
+            modelBuilder.Entity("OpenLoyalty.Api.Models.OutboxMessage", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("varchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Key")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Topic")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("Tries")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("outbox_messages", (string)null);
+                });
+
             modelBuilder.Entity("OpenLoyalty.Api.Models.Reward", b =>
                 {
                     b.Property<Guid>("Id")
@@ -501,42 +591,6 @@ namespace OpenLoyalty.Api.Migrations
                     b.ToTable("reward_redemption", (string)null);
                 });
 
-            modelBuilder.Entity("OpenLoyalty.Api.Models.Segment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("ConditionsJson")
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("segments", (string)null);
-                });
-
             modelBuilder.Entity("OpenLoyalty.Api.Models.Store", b =>
                 {
                     b.Property<Guid>("Id")
@@ -572,17 +626,8 @@ namespace OpenLoyalty.Api.Migrations
                         .IsRequired()
                         .HasColumnType("varchar(255)");
 
-                    b.Property<string>("Color")
-                        .HasColumnType("longtext");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Icon")
-                        .HasColumnType("longtext");
 
                     b.Property<decimal>("Multiplier")
                         .HasColumnType("decimal(65,30)");
@@ -591,19 +636,8 @@ namespace OpenLoyalty.Api.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("ProgressionType")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
                     b.Property<decimal>("ThresholdValue")
                         .HasColumnType("decimal(65,30)");
-
-                    b.Property<string>("TrackingPeriod")
-                        .IsRequired()
-                        .HasColumnType("longtext");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
@@ -623,10 +657,7 @@ namespace OpenLoyalty.Api.Migrations
                             CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             Multiplier = 1.0m,
                             Name = "Bronze",
-                            ProgressionType = "spend",
-                            SortOrder = 0,
                             ThresholdValue = 0m,
-                            TrackingPeriod = "rolling_12m",
                             UpdatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
@@ -689,52 +720,18 @@ namespace OpenLoyalty.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("char(36)");
 
-                    b.Property<Guid?>("ChannelId")
-                        .HasColumnType("char(36)");
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(65,30)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("ExternalId")
-                        .HasColumnType("longtext");
-
-                    b.Property<decimal>("GrossAmount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<Guid?>("MemberId")
+                    b.Property<Guid>("MemberId")
                         .HasColumnType("char(36)");
-
-                    b.Property<decimal>("NetAmount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<Guid?>("StoreId")
-                        .HasColumnType("char(36)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChannelId");
-
                     b.HasIndex("MemberId");
-
-                    b.HasIndex("StoreId");
 
                     b.ToTable("transaction", (string)null);
                 });
@@ -756,10 +753,6 @@ namespace OpenLoyalty.Api.Migrations
 
                     b.Property<Guid>("MemberId")
                         .HasColumnType("char(36)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("longtext");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -858,7 +851,9 @@ namespace OpenLoyalty.Api.Migrations
                 {
                     b.HasOne("OpenLoyalty.Api.Models.Tier", "Tier")
                         .WithMany("Members")
-                        .HasForeignKey("TierId");
+                        .HasForeignKey("TierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Tier");
                 });
@@ -904,7 +899,7 @@ namespace OpenLoyalty.Api.Migrations
             modelBuilder.Entity("OpenLoyalty.Api.Models.MemberTierHistory", b =>
                 {
                     b.HasOne("OpenLoyalty.Api.Models.Member", "Member")
-                        .WithMany("TierHistory")
+                        .WithMany()
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -963,7 +958,7 @@ namespace OpenLoyalty.Api.Migrations
             modelBuilder.Entity("OpenLoyalty.Api.Models.TimelineEvent", b =>
                 {
                     b.HasOne("OpenLoyalty.Api.Models.Member", "Member")
-                        .WithMany("TimelineEvents")
+                        .WithMany()
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -997,23 +992,13 @@ namespace OpenLoyalty.Api.Migrations
 
             modelBuilder.Entity("OpenLoyalty.Api.Models.Transaction", b =>
                 {
-                    b.HasOne("OpenLoyalty.Api.Models.Channel", "Channel")
-                        .WithMany()
-                        .HasForeignKey("ChannelId");
-
                     b.HasOne("OpenLoyalty.Api.Models.Member", "Member")
                         .WithMany("Transactions")
-                        .HasForeignKey("MemberId");
-
-                    b.HasOne("OpenLoyalty.Api.Models.Store", "Store")
-                        .WithMany()
-                        .HasForeignKey("StoreId");
-
-                    b.Navigation("Channel");
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Member");
-
-                    b.Navigation("Store");
                 });
 
             modelBuilder.Entity("OpenLoyalty.Api.Models.Wallet", b =>
@@ -1054,10 +1039,6 @@ namespace OpenLoyalty.Api.Migrations
 
             modelBuilder.Entity("OpenLoyalty.Api.Models.Member", b =>
                 {
-                    b.Navigation("TierHistory");
-
-                    b.Navigation("TimelineEvents");
-
                     b.Navigation("Transactions");
 
                     b.Navigation("Wallets");
