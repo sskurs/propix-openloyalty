@@ -1,0 +1,8 @@
+{
+    "type": "transaction.created",
+    "payload": {
+        "transaction_id": "tx-end-2-end-5",
+        "user_id": "user-E2E",
+        "gross_value": 150
+    }
+}

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Campaign Module – Full Composition & Implementation Spec</title>
+<style>
+ body{font-family:Arial,Helvetica,sans-serif;line-height:1.6;margin:40px;color:#222;}
+ h1,h2,h3{color:#0f2f5f;}
+ h1{border-bottom:3px solid #0f2f5f;padding-bottom:10px;}
+ h2{border-bottom:1px solid #ccc;padding-bottom:6px;margin-top:32px;}
+ h3{margin-top:20px;}
+ table{width:100%;border-collapse:collapse;margin:14px 0;}
+ th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left;}
+ th{background:#f4f6f8;}
+ code{background:#f4f4f4;padding:2px 6px;border-radius:4px;}
+ pre{background:#0f172a;color:#e5e7eb;padding:14px;border-radius:8px;overflow-x:auto;}
+ .note{background:#eef5ff;padding:12px;border-left:4px solid #0f2f5f;margin:18px 0;}
+</style>
+</head>
+<body>
+
+<h1>Campaign Module – Full Composition & Implementation Specification</h1>
+
+<p>
+This document describes the complete functional and technical specification for the
+<strong>Campaign Module</strong> in a loyalty system. It covers campaign structure, trigger logic,
+eligibility filters, rule execution, reward models, limits, stacking priorities, data storage,
+worker engine interactions, and event‑driven flow.
+</p>
+
+<h2>1. Campaign Core (Mandatory)</h2>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>id</td><td>UUID (Primary Key)</td></tr>
+<tr><td>code</td><td>Unique internal campaign code</td></tr>
+<tr><td>name</td><td>Display title</td></tr>
+<tr><td>description</td><td>Admin-facing description</td></tr>
+<tr><td>status</td><td>DRAFT / ACTIVE / PAUSED / COMPLETED / ARCHIVED</td></tr>
+<tr><td>priority</td><td>Execution priority among other campaigns</td></tr>
+<tr><td>created_by</td><td>Admin user id</td></tr>
+<tr><td>created_at</td><td>Timestamp</td></tr>
+<tr><td>updated_at</td><td>Timestamp</td></tr>
+<tr><td>version</td><td>Optimistic concurrency token</td></tr>
+</table>
+
+<h2>2. Campaign Timing & Scope</h2>
+
+<h3>2.1 Validity</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>start_date</td><td>Campaign activation timestamp</td></tr>
+<tr><td>end_date</td><td>Campaign expiration timestamp</td></tr>
+<tr><td>timezone</td><td>Time zone alignment</td></tr>
+<tr><td>is_recurring</td><td>true / false</td></tr>
+</table>
+
+<h3>2.2 Recurrence (Optional)</h3>
+
+<table>
+<tr><th>Field</th><th>Example</th></tr>
+<tr><td>recurrence_type</td><td>DAILY / WEEKLY / MONTHLY</td></tr>
+<tr><td>recurrence_window</td><td>Weekdays / weekends</td></tr>
+<tr><td>max_occurrences</td><td>Limit total runs</td></tr>
+</table>
+
+<h2>3. Trigger Model (How Campaign Starts)</h2>
+
+<p>A campaign executes when a trigger event occurs.</p>
+
+<table>
+<tr><th>Trigger Type</th><th>Description</th></tr>
+<tr><td>TRANSACTION</td><td>Order, payment, or purchase event</td></tr>
+<tr><td>EVENT</td><td>Custom behavioral or lifecycle event</td></tr>
+<tr><td>SCHEDULE</td><td>Periodic / cron execution</td></tr>
+<tr><td>MANUAL</td><td>Admin‑initiated execution</td></tr>
+<tr><td>TIER_CHANGE</td><td>Membership tier upgrade / downgrade</td></tr>
+<tr><td>SEGMENT_ENTER</td><td>Customer enters a segment</td></tr>
+</table>
+
+<h3>Trigger JSON Example</h3>
+
+<pre>
+{
+  "type": "TRANSACTION",
+  "event": "transaction.created"
+}
+</pre>
+
+<h2>4. Eligibility (Who Can Participate)</h2>
+
+<table>
+<tr><th>Filter</th><th>Example</th></tr>
+<tr><td>Member Status</td><td>ACTIVE</td></tr>
+<tr><td>Tier</td><td>GOLD / PLATINUM</td></tr>
+<tr><td>Segments</td><td>high_spenders</td></tr>
+<tr><td>Tags</td><td>vip, churn-risk</td></tr>
+<tr><td>Registration Date</td><td>After a given date</td></tr>
+<tr><td>Country / Store</td><td>IN, Store‑12</td></tr>
+</table>
+
+<pre>
+{
+  "tier": ["GOLD"],
+  "segments": ["high_spenders"],
+  "tags": ["vip"]
+}
+</pre>
+
+<h2>5. Conditions (When Reward Applies)</h2>
+
+<table>
+<tr><th>Condition Type</th><th>Example</th></tr>
+<tr><td>Transaction Amount</td><td>&gt;= 1000</td></tr>
+<tr><td>Transaction Count</td><td>5 orders</td></tr>
+<tr><td>Accumulated Spend</td><td>10,000 in 30 days</td></tr>
+<tr><td>Event Count</td><td>3 logins</td></tr>
+<tr><td>Product / Category</td><td>SKU or Category match</td></tr>
+<tr><td>Time Window</td><td>Within 7 days</td></tr>
+<tr><td>Tier Rule</td><td>TIER == SILVER</td></tr>
+</table>
+
+<h3>Condition Logic</h3>
+
+<table>
+<tr><th>Logic</th></tr>
+<tr><td>ALL (AND)</td></tr>
+<tr><td>ANY (OR)</td></tr>
+<tr><td>NOT</td></tr>
+</table>
+
+<pre>
+{
+  "logic": "ALL",
+  "rules": [
+    { "field": "amount", "operator": ">=", "value": 1000 },
+    { "field": "currency", "operator": "==", "value": "INR" }
+  ]
+}
+</pre>
+
+<h2>6. Reward Model (What the Customer Receives)</h2>
+
+<h3>6.1 Supported Reward Types</h3>
+<ul>
+<li>Points</li>
+<li>Coupons</li>
+<li>Cashback</li>
+<li>Tier Upgrade</li>
+<li>Badges / Achievements</li>
+<li>Gift / Free Product</li>
+</ul>
+
+<h3>6.1.1 Points Reward</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>amount</td><td>Fixed or percentage</td></tr>
+<tr><td>calculation</td><td>FIXED / PERCENT</td></tr>
+<tr><td>wallet</td><td>Main / Bonus wallet</td></tr>
+<tr><td>expiration_days</td><td>Optional</td></tr>
+</table>
+
+<pre>
+{
+  "type": "POINTS",
+  "amount": 500,
+  "wallet": "MAIN"
+}
+</pre>
+
+<h3>6.1.2 Coupon Reward</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>template_id</td><td>Coupon template reference</td></tr>
+<tr><td>code_type</td><td>STATIC / UNIQUE</td></tr>
+<tr><td>valid_from</td><td>Start</td></tr>
+<tr><td>valid_to</td><td>End</td></tr>
+<tr><td>usage_limit</td><td>Per user</td></tr>
+<tr><td>discount_type</td><td>PERCENT / FLAT</td></tr>
+<tr><td>discount_value</td><td>Amount</td></tr>
+</table>
+
+<pre>
+{
+  "type": "COUPON",
+  "template": "WELCOME10",
+  "usage_limit": 1
+}
+</pre>
+
+<h3>6.1.3 Cashback Reward</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>percentage</td><td>Cashback percent</td></tr>
+<tr><td>max_amount</td><td>Reward cap</td></tr>
+<tr><td>wallet</td><td>Cashback wallet</td></tr>
+</table>
+
+<h3>6.1.4 Tier Upgrade</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>target_tier</td><td>New tier</td></tr>
+<tr><td>duration</td><td>Temporary / Permanent</td></tr>
+</table>
+
+<h3>6.1.5 Badge / Achievement</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>badge_id</td><td>Identifier</td></tr>
+<tr><td>visibility</td><td>Public / Private</td></tr>
+</table>
+
+<h3>6.1.6 Free Product / Gift</h3>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>sku</td><td>Product SKU</td></tr>
+<tr><td>quantity</td><td>Gift quantity</td></tr>
+</table>
+
+<h2>7. Limits & Anti‑Abuse Controls</h2>
+
+<table>
+<tr><th>Limit Scope</th><th>Example</th></tr>
+<tr><td>per_user</td><td>1 per day</td></tr>
+<tr><td>per_campaign</td><td>10,000 total</td></tr>
+<tr><td>per_transaction</td><td>Once per order</td></tr>
+<tr><td>per_segment</td><td>500 users</td></tr>
+</table>
+
+<pre>
+{
+  "per_user": 1,
+  "per_campaign": 10000
+}
+</pre>
+
+<h2>8. Campaign Stacking & Priority</h2>
+
+<table>
+<tr><th>Rule</th><th>Description</th></tr>
+<tr><td>allow_stacking</td><td>Can combine with other campaigns</td></tr>
+<tr><td>exclusive</td><td>Stops other rewards</td></tr>
+<tr><td>priority</td><td>Order of application</td></tr>
+</table>
+
+<h2>9. Notification Hooks (Optional)</h2>
+
+<table>
+<tr><th>Channel</th></tr>
+<tr><td>Email</td></tr>
+<tr><td>SMS</td></tr>
+<tr><td>Push</td></tr>
+<tr><td>In‑app</td></tr>
+</table>
+
+<pre>
+{
+  "on_reward": {
+    "email_template": "campaign_reward_email",
+    "push_template": "reward_push"
+  }
+}
+</pre>
+
+<h2>10. Persistence & Tracking</h2>
+
+<table>
+<tr><th>Table</th><th>Purpose</th></tr>
+<tr><td>campaigns</td><td>Core campaign info</td></tr>
+<tr><td>campaign_conditions</td><td>Condition rules JSON</td></tr>
+<tr><td>campaign_rewards</td><td>Reward definitions JSON</td></tr>
+<tr><td>campaign_executions</td><td>Reward execution history</td></tr>
+<tr><td>outbox</td><td>Event publishing</td></tr>
+<tr><td>transaction_events</td><td>Trigger source events</td></tr>
+</table>
+
+<h2>11. Execution Flow</h2>
+
+<pre>
+Admin creates campaign
+ → Campaign saved in DB
+ → Outbox row added (campaign.created)
+ → Kafka publishes event
+ → Worker consumes campaign
+ → Worker waits for trigger events
+ → Conditions evaluated
+ → Rewards issued
+ → Execution audit stored
+ → Reward events emitted
+</pre>
+
+<h2>12. Conclusion</h2>
+
+<p>
+This specification defines the complete design of the Campaign Module,
+ensuring compatibility with event‑driven worker processing and scalable loyalty operations.
+</p>
+
+</body>
+</html>

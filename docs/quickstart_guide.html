@@ -1,0 +1,427 @@
+<!DOCTYPE html><html><head><meta charset=" "UTF-8\u003e<title>quickstart_guide</title><style>body{font-family:Arial;max-width:1200px;margin:20px auto;padding:20px;background:#f5f5f5}h1{color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:10px}h2{color:#34495e;margin-top:30px;border-bottom:2px solid #ecf0f1}code{background:#f8f9fa;padding:2px 6px;border-radius:3px;color:#e74c3c}pre{background:#2d2d2d;color:#f8f8f2;padding:20px;border-radius:5px;overflow-x:auto}table{border-collapse:collapse;width:100%%;margin:20px 0}th,td{border:1px solid #ddd;padding:12px}th{background:#3498db;color:white}</style></head><body><h1>Quick-Start Guide - Feature Implementation</h1>
+<h2>🚀 30-Minute Feature Setup</h2>
+<p>This guide helps you implement a new feature in <strong>30 minutes</strong> using the proven pattern.</p>
+<hr />
+<h2>Step 1: Define Your Feature (5 min)</h2>
+<p>Fill in these variables:</p>
+<pre><code class="language-bash"># Feature details
+FEATURE_NAME=&quot;Segments&quot;           # PascalCase
+FEATURE_LOWER=&quot;segments&quot;          # lowercase
+TABLE_NAME=&quot;customer_segments&quot;    # snake_case
+ENTITY_NAME=&quot;CustomerSegment&quot;     # PascalCase
+
+# Database
+DB_USER=&quot;loyaltypro&quot;
+DB_NAME=&quot;loyalty_worker&quot;
+</code></pre>
+<hr />
+<h2>Step 2: Create Database (10 min)</h2>
+<h3>2.1 Create Migration File</h3>
+<pre><code class="language-bash"># Create file
+touch database/migrations/004_${FEATURE_LOWER}.sql
+</code></pre>
+<h3>2.2 Copy Template</h3>
+<pre><code class="language-sql">-- Feature: ${FEATURE_NAME}
+
+CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
+    id BIGSERIAL PRIMARY KEY,
+    ${FEATURE_LOWER}_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT unique_${FEATURE_LOWER}_id UNIQUE(${FEATURE_LOWER}_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_${TABLE_NAME}_id ON ${TABLE_NAME}(${FEATURE_LOWER}_id);
+CREATE INDEX IF NOT EXISTS idx_${TABLE_NAME}_created ON ${TABLE_NAME}(created_at DESC);
+</code></pre>
+<h3>2.3 Apply Migration</h3>
+<pre><code class="language-bash">psql -U ${DB_USER} -d ${DB_NAME} -f database/migrations/004_${FEATURE_LOWER}.sql
+</code></pre>
+<hr />
+<h2>Step 3: Worker Engine (5 min)</h2>
+<h3>3.1 Create Entity Model</h3>
+<pre><code class="language-bash"># Create file
+touch worker-engine/worker/Models/${ENTITY_NAME}.cs
+</code></pre>
+<pre><code class="language-csharp">using System;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Worker.Models
+{
+    [Table(&quot;${TABLE_NAME}&quot;)]
+    public class ${ENTITY_NAME}
+    {
+        [Key]
+        [Column(&quot;id&quot;)]
+        public long Id { get; set; }
+
+        [Required]
+        [Column(&quot;${FEATURE_LOWER}_id&quot;)]
+        public string ${ENTITY_NAME}Id { get; set; } = &quot;&quot;;
+
+        [Column(&quot;name&quot;)]
+        public string Name { get; set; } = &quot;&quot;;
+
+        [Column(&quot;description&quot;)]
+        public string? Description { get; set; }
+
+        [Column(&quot;metadata&quot;, TypeName = &quot;jsonb&quot;)]
+        public string? Metadata { get; set; }
+
+        [Column(&quot;created_at&quot;)]
+        public DateTime CreatedAt { get; set; }
+
+        [Column(&quot;updated_at&quot;)]
+        public DateTime? UpdatedAt { get; set; }
+    }
+}
+</code></pre>
+<h3>3.2 Update DbContext</h3>
+<p>Add to <code>worker-engine/worker/Data/WorkerDbContext.cs</code>:</p>
+<pre><code class="language-csharp">// ${FEATURE_NAME} Entities
+public DbSet&lt;Worker.Models.${ENTITY_NAME}&gt; ${ENTITY_NAME}s =&gt; Set&lt;Worker.Models.${ENTITY_NAME}&gt;();
+</code></pre>
+<p>In <code>OnModelCreating</code>:</p>
+<pre><code class="language-csharp">modelBuilder.Entity&lt;Worker.Models.${ENTITY_NAME}&gt;().ToTable(&quot;${TABLE_NAME}&quot;);
+</code></pre>
+<hr />
+<h2>Step 4: Customer API (5 min)</h2>
+<h3>4.1 Create Entity Model</h3>
+<pre><code class="language-bash"># Copy from worker
+cp worker-engine/worker/Models/${ENTITY_NAME}.cs customer-api/Models/
+</code></pre>
+<p>Update namespace to <code>OpenLoyalty.Customer.Api.Models</code></p>
+<h3>4.2 Update DbContext</h3>
+<p>Add to <code>customer-api/Data/LoyaltyDbContext.cs</code>:</p>
+<pre><code class="language-csharp">public DbSet&lt;${ENTITY_NAME}&gt; ${ENTITY_NAME}s { get; set; }
+</code></pre>
+<p>In <code>OnModelCreating</code>:</p>
+<pre><code class="language-csharp">modelBuilder.Entity&lt;${ENTITY_NAME}&gt;().ToTable(&quot;${TABLE_NAME}&quot;);
+</code></pre>
+<h3>4.3 Create Controller</h3>
+<pre><code class="language-bash">touch customer-api/Controllers/${FEATURE_NAME}Controller.cs
+</code></pre>
+<pre><code class="language-csharp">using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using OpenLoyalty.Customer.Api.Data;
+
+namespace OpenLoyalty.Customer.Api.Controllers
+{
+    [ApiController]
+    [Route(&quot;api/${FEATURE_LOWER}&quot;)]
+    public class ${FEATURE_NAME}Controller : ControllerBase
+    {
+        private readonly LoyaltyDbContext _db;
+
+        public ${FEATURE_NAME}Controller(LoyaltyDbContext db)
+        {
+            _db = db;
+        }
+
+        [HttpGet]
+        public async Task&lt;IActionResult&gt; GetAll()
+        {
+            var items = await _db.${ENTITY_NAME}s
+                .OrderByDescending(x =&gt; x.CreatedAt)
+                .ToListAsync();
+            return Ok(new { items, count = items.Count });
+        }
+
+        [HttpGet(&quot;{id}&quot;)]
+        public async Task&lt;IActionResult&gt; GetById(string id)
+        {
+            var item = await _db.${ENTITY_NAME}s
+                .FirstOrDefaultAsync(x =&gt; x.${ENTITY_NAME}Id == id);
+
+            if (item == null) return NotFound();
+            return Ok(item);
+        }
+    }
+}
+</code></pre>
+<hr />
+<h2>Step 5: Test &amp; Deploy (5 min)</h2>
+<h3>5.1 Rebuild Services</h3>
+<pre><code class="language-bash"># Worker
+docker-compose build worker
+
+# Customer API
+docker-compose build customer-api
+
+# Restart
+docker-compose up -d
+</code></pre>
+<h3>5.2 Test API</h3>
+<pre><code class="language-bash"># Test GET all
+curl http://localhost:5002/api/${FEATURE_LOWER}
+
+# Test GET by ID
+curl http://localhost:5002/api/${FEATURE_LOWER}/test-id-123
+</code></pre>
+<h3>5.3 Verify Database</h3>
+<pre><code class="language-bash">psql -U ${DB_USER} -d ${DB_NAME}
+
+# Check table
+\d ${TABLE_NAME}
+
+# Check data
+SELECT * FROM ${TABLE_NAME} LIMIT 5;
+</code></pre>
+<hr />
+<h2>🎯 You're Done!</h2>
+<p>You now have:
+- ✅ Database table with indexes
+- ✅ Worker entity model
+- ✅ Customer API with 2 endpoints
+- ✅ Working CRUD operations</p>
+<hr />
+<h2>Next Steps (Optional)</h2>
+<h3>Add Admin Analytics</h3>
+<pre><code class="language-bash"># Create admin controller
+touch admin-api/OpenLoyalty.Api/Controllers/${FEATURE_NAME}AnalyticsController.cs
+</code></pre>
+<pre><code class="language-csharp">[ApiController]
+[Route(&quot;api/analytics/${FEATURE_LOWER}&quot;)]
+public class ${FEATURE_NAME}AnalyticsController : ControllerBase
+{
+    private readonly LoyaltyDbContext _db;
+
+    public ${FEATURE_NAME}AnalyticsController(LoyaltyDbContext db)
+    {
+        _db = db;
+    }
+
+    [HttpGet(&quot;stats&quot;)]
+    public async Task&lt;IActionResult&gt; GetStats()
+    {
+        var stats = new
+        {
+            total = await _db.${ENTITY_NAME}s.CountAsync(),
+            createdToday = await _db.${ENTITY_NAME}s
+                .Where(x =&gt; x.CreatedAt.Date == DateTime.UtcNow.Date)
+                .CountAsync()
+        };
+        return Ok(stats);
+    }
+}
+</code></pre>
+<h3>Add Message Handler</h3>
+<pre><code class="language-bash">touch worker-engine/worker/Handlers/${FEATURE_NAME}Handler.cs
+</code></pre>
+<pre><code class="language-csharp">public class ${FEATURE_NAME}Handler
+{
+    private readonly WorkerDbContext _db;
+    private readonly ILogger&lt;${FEATURE_NAME}Handler&gt; _logger;
+
+    public ${FEATURE_NAME}Handler(WorkerDbContext db, ILogger&lt;${FEATURE_NAME}Handler&gt; logger)
+    {
+        _db = db;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(ConsumeResult&lt;string, string&gt; message, CancellationToken ct)
+    {
+        // Parse message
+        var payload = JsonSerializer.Deserialize&lt;${FEATURE_NAME}Message&gt;(message.Value);
+
+        // Process
+        var entity = new ${ENTITY_NAME}
+        {
+            ${ENTITY_NAME}Id = Guid.NewGuid().ToString(),
+            Name = payload.Name,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.${ENTITY_NAME}s.Add(entity);
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(&quot;Created ${FEATURE_LOWER} {Id}&quot;, entity.${ENTITY_NAME}Id);
+    }
+
+    private class ${FEATURE_NAME}Message
+    {
+        public string Name { get; set; } = &quot;&quot;;
+    }
+}
+</code></pre>
+<p>Register in <code>Program.cs</code>:</p>
+<pre><code class="language-csharp">services.AddScoped&lt;Worker.Handlers.${FEATURE_NAME}Handler&gt;();
+</code></pre>
+<p>Update <code>MessageDispatcher.cs</code>:</p>
+<pre><code class="language-csharp">if (type == &quot;${FEATURE_LOWER}.created&quot;)
+{
+    using var s = _sp.CreateScope();
+    var h = s.ServiceProvider.GetRequiredService&lt;Worker.Handlers.${FEATURE_NAME}Handler&gt;();
+    await h.HandleAsync(msg, ct);
+    return true;
+}
+</code></pre>
+<hr />
+<h2>Common Customizations</h2>
+<h3>Add User Association</h3>
+<pre><code class="language-sql">ALTER TABLE ${TABLE_NAME} ADD COLUMN user_id TEXT;
+CREATE INDEX idx_${TABLE_NAME}_user ON ${TABLE_NAME}(user_id);
+</code></pre>
+<pre><code class="language-csharp">[Column(&quot;user_id&quot;)]
+public string? UserId { get; set; }
+</code></pre>
+<h3>Add Status Field</h3>
+<pre><code class="language-sql">ALTER TABLE ${TABLE_NAME} ADD COLUMN status TEXT DEFAULT 'ACTIVE';
+CREATE INDEX idx_${TABLE_NAME}_status ON ${TABLE_NAME}(status);
+</code></pre>
+<pre><code class="language-csharp">[Column(&quot;status&quot;)]
+public string Status { get; set; } = &quot;ACTIVE&quot;;
+</code></pre>
+<h3>Add Soft Delete</h3>
+<pre><code class="language-sql">ALTER TABLE ${TABLE_NAME} ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;
+</code></pre>
+<pre><code class="language-csharp">[Column(&quot;deleted_at&quot;)]
+public DateTime? DeletedAt { get; set; }
+</code></pre>
+<p>Query:</p>
+<pre><code class="language-csharp">var items = await _db.${ENTITY_NAME}s
+    .Where(x =&gt; x.DeletedAt == null)
+    .ToListAsync();
+</code></pre>
+<hr />
+<h2>Troubleshooting</h2>
+<h3>Database Connection Error</h3>
+<pre><code class="language-bash"># Check PostgreSQL is running
+docker ps | grep postgres
+
+# Check connection
+psql -U ${DB_USER} -d ${DB_NAME} -c &quot;SELECT 1&quot;
+</code></pre>
+<h3>Table Not Found</h3>
+<pre><code class="language-bash"># Verify table exists
+psql -U ${DB_USER} -d ${DB_NAME} -c &quot;\dt ${TABLE_NAME}&quot;
+
+# Re-run migration
+psql -U ${DB_USER} -d ${DB_NAME} -f database/migrations/004_${FEATURE_LOWER}.sql
+</code></pre>
+<h3>API 404 Error</h3>
+<pre><code class="language-bash"># Check service is running
+docker ps | grep customer-api
+
+# Check logs
+docker logs customer-api --tail 50
+
+# Rebuild
+docker-compose build customer-api
+docker-compose up -d customer-api
+</code></pre>
+<h3>DbContext Error</h3>
+<pre><code class="language-bash"># Verify DbSet is added
+grep &quot;${ENTITY_NAME}&quot; customer-api/Data/LoyaltyDbContext.cs
+
+# Verify table mapping
+grep &quot;${TABLE_NAME}&quot; customer-api/Data/LoyaltyDbContext.cs
+</code></pre>
+<hr />
+<h2>Cheat Sheet</h2>
+<h3>File Locations</h3>
+<pre><code>Database:
+  database/migrations/XXX_${FEATURE_LOWER}.sql
+
+Worker:
+  worker-engine/worker/Models/${ENTITY_NAME}.cs
+  worker-engine/worker/Handlers/${FEATURE_NAME}Handler.cs
+  worker-engine/worker/Data/WorkerDbContext.cs (modify)
+  worker-engine/worker/Program.cs (modify)
+
+Customer API:
+  customer-api/Models/${ENTITY_NAME}.cs
+  customer-api/Controllers/${FEATURE_NAME}Controller.cs
+  customer-api/Data/LoyaltyDbContext.cs (modify)
+
+Admin API:
+  admin-api/OpenLoyalty.Api/Models/${ENTITY_NAME}.cs
+  admin-api/OpenLoyalty.Api/Controllers/${FEATURE_NAME}AnalyticsController.cs
+  admin-api/OpenLoyalty.Api/Data/LoyaltyDbContext.cs (modify)
+</code></pre>
+<h3>Common Commands</h3>
+<pre><code class="language-bash"># Database
+psql -U loyaltypro -d loyalty_worker
+\dt                                    # List tables
+\d ${TABLE_NAME}                       # Describe table
+SELECT * FROM ${TABLE_NAME} LIMIT 5;   # View data
+
+# Docker
+docker-compose build worker customer-api admin-api
+docker-compose up -d
+docker logs worker-engine --tail 100
+docker logs customer-api --tail 100
+
+# API Testing
+curl http://localhost:5002/api/${FEATURE_LOWER}
+curl http://localhost:5002/api/${FEATURE_LOWER}/test-id
+</code></pre>
+<hr />
+<h2>Success Checklist</h2>
+<ul>
+<li>[ ] Database table created</li>
+<li>[ ] Indexes added</li>
+<li>[ ] Worker entity model created</li>
+<li>[ ] Worker DbContext updated</li>
+<li>[ ] Customer API entity model created</li>
+<li>[ ] Customer API DbContext updated</li>
+<li>[ ] Customer API controller created</li>
+<li>[ ] Services rebuilt</li>
+<li>[ ] API endpoints tested</li>
+<li>[ ] Database verified</li>
+</ul>
+<hr />
+<h2>Example: Implementing "Tiers" in 30 Minutes</h2>
+<pre><code class="language-bash"># 1. Variables (1 min)
+FEATURE_NAME=&quot;Tiers&quot;
+FEATURE_LOWER=&quot;tiers&quot;
+TABLE_NAME=&quot;member_tiers&quot;
+ENTITY_NAME=&quot;MemberTier&quot;
+
+# 2. Database (5 min)
+cat &gt; database/migrations/004_tiers.sql &lt;&lt; 'EOF'
+CREATE TABLE IF NOT EXISTS member_tiers (
+    id BIGSERIAL PRIMARY KEY,
+    tier_id TEXT NOT NULL,
+    tier_name TEXT NOT NULL,
+    min_points DECIMAL(18,2) NOT NULL,
+    max_points DECIMAL(18,2),
+    benefits JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT unique_tier_id UNIQUE(tier_id)
+);
+CREATE INDEX idx_tiers_points ON member_tiers(min_points, max_points);
+EOF
+
+psql -U loyaltypro -d loyalty_worker -f database/migrations/004_tiers.sql
+
+# 3. Worker (5 min)
+# Create Models/MemberTier.cs
+# Update WorkerDbContext.cs
+
+# 4. Customer API (10 min)
+# Create Models/MemberTier.cs
+# Create Controllers/TiersController.cs
+# Update LoyaltyDbContext.cs
+
+# 5. Deploy (5 min)
+docker-compose build worker customer-api
+docker-compose up -d
+
+# 6. Test (4 min)
+curl http://localhost:5002/api/tiers
+</code></pre>
+<p><strong>Total Time: 30 minutes</strong> ✅</p>
+<hr />
+<h2>Summary</h2>
+<p>This quick-start guide gives you:
+- ✅ <strong>30-minute setup</strong> for new features
+- ✅ <strong>Copy-paste templates</strong> for all components
+- ✅ <strong>Common customizations</strong> ready to use
+- ✅ <strong>Troubleshooting guide</strong> for quick fixes
+- ✅ <strong>Success checklist</strong> to track progress</p>
+<p>Use this for <strong>every new feature</strong> - Tiers, Segments, Rewards, Redemptions, etc.! 🚀</p></body></html>

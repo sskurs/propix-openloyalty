@@ -1,0 +1,20 @@
+{
+    "Name": "Sync Test Campaign 2",
+    "Status": "active",
+    "StartAt": "2024-01-01T00:00:00Z",
+    "Conditions": [
+        {
+            "Type": "gross_value",
+            "Operator": "gte",
+            "Value": 100
+        }
+    ],
+    "Rewards": [
+        {
+            "Type": "COUPON",
+            "Value": {
+                "couponCode": "WELCOME10"
+            }
+        }
+    ]
+}

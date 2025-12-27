@@ -1,85 +1,129 @@
+# This Docker Compose file orchestrates the backend and frontend services.
+# It is designed to connect to a PostgreSQL database running on your local machine (the Docker host).
+
 services:
-  postgres:
-    image: postgres:15
+  # ----------------------------------
+  # Customer Web App (Next.js) Service
+  # ----------------------------------
+  customer-web:
+    container_name: customer-web
+    build:
+      context: ./customer-web
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
     environment:
-      POSTGRES_DB: openloyalty
-      POSTGRES_USER: ol_user
-      POSTGRES_PASSWORD: ol_pass
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-      
-  zookeeper:
-    image: confluentinc/cp-zookeeper:5.4.10-1-ubi8
-    restart: always
-    environment:
-      ZOOKEEPER_SERVER_ID: 1
-      ZOOKEEPER_CLIENT_PORT: "2181"
-      ZOOKEEPER_TICK_TIME: "2000"
-      ZOOKEEPER_SERVERS: "zookeeper:22888:23888"
-    ports:
-      - "2181:2181"
-
-  kafka:
-    image: confluentinc/cp-kafka:7.2.2
+      - NEXT_PUBLIC_API_URL=http://customer-api:8081/api
+      - API_PROXY_URL=http://customer-api:8081/api
     depends_on:
-      - zookeeper
-    ports:
-      # Exposes 29092 for external connections to the broker
-      # Use kafka1:9092 for connections internal on the docker network
-      # See https://rmoff.net/2018/08/02/kafka-listeners-explained/ for details
-      - "19092:19092"
-    environment:
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:19092
-      KAFKA_BROKER_ID: 1
-      KAFKA_BROKER_RACK: "r1"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_DELETE_TOPIC_ENABLE: "true"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_SCHEMA_REGISTRY_URL: "schemaregistry:8085"
-      KAFKA_LOG4J_ROOT_LOGLEVEL: INFO
-      KAFKA_JMX_PORT: 9991
+      - customer-api
+    networks:
+      - loyalty-network
 
-  schemaregistry:
-    image: confluentinc/cp-schema-registry:5.4.10
-    restart: always
-    depends_on:
-      - zookeeper
-    environment:
-      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: "zookeeper:2181"
-      SCHEMA_REGISTRY_HOST_NAME: schemaregistry
-      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8085"
-    ports:
-      - 18085:8085
-  kafdrop:
-    image: obsidiandynamics/kafdrop:3.31.0-SNAPSHOT
-    depends_on:
-      - kafka
-      - schemaregistry
-    ports:
-      - 19000:9000
-    environment:
-      KAFKA_BROKERCONNECT: kafka:9092
-      CMD_ARGS: "--message.format=AVRO --message.keyFormat=DEFAULT --schemaregistry.connect=http://schemaregistry:8085"
+  # ----------------------------------
+  # Backend API (.NET) Service
+  # ----------------------------------
+  backend:
+    container_name: admin-api
+    # Specifies that the image should be built from the 'backend-dotnet' directory.
+    # You must have a Dockerfile in that folder.
+    build:
+      context: ./admin-api
+      dockerfile: OpenLoyalty.Api/Dockerfile # Assuming Dockerfile is in the Api project folder
 
+    # Maps port 8080 on your host machine to port 80 inside the container.
+    # You will access your API at http://localhost:8080
+    ports:
+      - "5199:8080"
+
+    # Environment variables passed to the container at runtime.
+    # These will override the settings in your 'appsettings.json'.
+    environment:
+      # This is the crucial part for connecting to an external PostgreSQL database.
+      # 'host.docker.internal' is a special DNS name that resolves to the IP address
+      # of your local machine from within the Docker container.
+      #
+      # !!! IMPORTANT: Replace 'your_postgres_password' with your actual password.
+      - ConnectionStrings__OpenloyaltyDatabase=Host=host.docker.internal;Port=5432;Database=openloyalty;Username=loyaltypro;Password=Propix@123!
+      - Kafka__BootstrapServers=kafka:9092
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_HTTP_PORTS=8080
+
+    # Simplified command as migrations are now handled in Program.cs
+    command: dotnet OpenLoyalty.Api.dll
+
+    # Places this service on a shared network so the frontend can find it.
+    networks:
+      - loyalty-network
+
+  # ----------------------------------
+  # Customer API (.NET) Service
+  # ----------------------------------
+  customer-api:
+    container_name: customer-api
+    build:
+      context: ./customer-api
+      dockerfile: Dockerfile
+    ports:
+      - "5123:8081"
+    environment:
+      - ConnectionStrings__OpenloyaltyDatabase=Host=host.docker.internal;Port=5432;Database=openloyalty;Username=loyaltypro;Password=Propix@123!
+      - Kafka__BootstrapServers=kafka:9092
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8081
+      - ASPNETCORE_HTTP_PORTS=8081
+    command: dotnet OpenLoyalty.Customer.Api.dll
+    networks:
+      - loyalty-network
+
+  # ----------------------------------
+  # Frontend (Next.js) Service
+  # ----------------------------------
+  frontend:
+    container_name: admin-web
+    # Specifies that the image should be built from the 'frontend-nextjs' directory.
+    # You must have a Dockerfile in that folder.
+    build:
+      context: ./admin-web
+      dockerfile: Dockerfile
+
+    # Maps port 3000 on your host to port 3000 in the container.
+    ports:
+      - "3000:3000"
+
+    # Environment variables passed to the Next.js app.
+    environment:
+      # This tells the Next.js app how to find the backend API.
+      # 'backend' is the service name defined above. Docker's internal DNS will resolve it.
+      - NEXT_PUBLIC_API_URL=http://backend:8080/api
+      - API_PROXY_URL=http://backend:8080/api
+
+    # Ensures the backend service is started before the frontend.
+    depends_on:
+      - backend
+
+    networks:
+      - loyalty-network
+
+  # ----------------------------------
+  # Worker Engine (.NET) Service
+  # ----------------------------------
   worker:
-    build: ./loyalty-worker
-    depends_on:
-      - postgres
-      - redis
-      - kafka
+    container_name: worker-engine
+    build:
+      context: ./worker-engine/worker
+      dockerfile: Dockerfile
+    environment:
+      - ConnectionStrings__WorkerDatabase=Host=host.docker.internal;Port=5432;Database=loyalty_worker;Username=loyaltypro;Password=Propix@123!
+      - Kafka__BootstrapServers=kafka:9092
+      - Kafka__SubscribeTopics=rules.updates,earning-rule.activated,earning-rule.deactivated,earning-rule.cron.triggered,campaign.created,campaign.updated,transaction.created,wallet.points.added
+      - Redis__Connection=redis:6379
+    networks:
+      - loyalty-network
 
-volumes:
-  pgdata:
+# Defines the shared network for inter-container communication.
 networks:
-  openloyalty-net:
-    external: true
+  loyalty-network:
+    name: loyalty-network
+    driver: bridge

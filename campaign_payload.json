@@ -1,0 +1,12 @@
+{
+    "name": "Test Campaign for Outbox",
+    "status": "ACTIVE",
+    "startAt": "2024-01-01T00:00:00Z",
+    "conditions": [],
+    "rewards": [
+        {
+            "type": "issueCoupon",
+            "value": "{\"couponCode\":\"WELCOME10\"}"
+        }
+    ]
+}

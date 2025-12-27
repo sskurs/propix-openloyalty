@@ -1,0 +1,370 @@
+<!DOCTYPE html><html><head><meta charset=" "UTF-8\u003e<title>phase2_implementation</title><style>body{font-family:Arial;max-width:1200px;margin:20px auto;padding:20px;background:#f5f5f5}h1{color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:10px}h2{color:#34495e;margin-top:30px;border-bottom:2px solid #ecf0f1}code{background:#f8f9fa;padding:2px 6px;border-radius:3px;color:#e74c3c}pre{background:#2d2d2d;color:#f8f8f2;padding:20px;border-radius:5px;overflow-x:auto}table{border-collapse:collapse;width:100%%;margin:20px 0}th,td{border:1px solid #ddd;padding:12px}th{background:#3498db;color:white}</style></head><body><h1>Phase 2 Implementation - Customer Rewards Views</h1>
+<h2>What Was Implemented</h2>
+<h3>1. Customer API Endpoints ✅</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/customer-api/Controllers/RewardsController.cs"><code>customer-api/Controllers/RewardsController.cs</code></a></p>
+<p>Created 5 REST API endpoints for customer rewards:</p>
+<h4>Endpoint 1: Get Points Balance</h4>
+<pre><code class="language-http">GET /api/rewards/me/points?userId={userId}
+</code></pre>
+<p><strong>Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;pointsBalance&quot;: 1500,
+  &quot;lifetimePoints&quot;: 5000,
+  &quot;tier&quot;: &quot;SILVER&quot;,
+  &quot;pointsEarnedThisMonth&quot;: 500,
+  &quot;pointsRedeemed&quot;: 0,
+  &quot;lastUpdated&quot;: &quot;2025-12-27T01:00:00Z&quot;
+}
+</code></pre>
+<p><strong>Features</strong>:
+- Returns current points balance
+- Shows lifetime points earned
+- Displays member tier (BRONZE, SILVER, GOLD, PLATINUM)
+- Tracks points earned this month
+- Shows total points redeemed
+- Returns default values for new members (0 points, BRONZE tier)</p>
+<hr />
+<h4>Endpoint 2: Get Points Transaction History</h4>
+<pre><code class="language-http">GET /api/rewards/me/points/history?userId={userId}&amp;page=1&amp;pageSize=20
+</code></pre>
+<p><strong>Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;transactions&quot;: [
+    {
+      &quot;id&quot;: 123,
+      &quot;type&quot;: &quot;EARNED&quot;,
+      &quot;points&quot;: 100,
+      &quot;balanceAfter&quot;: 1500,
+      &quot;description&quot;: &quot;Points earned from campaign Welcome Bonus&quot;,
+      &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+      &quot;orderId&quot;: &quot;TXN-1766778102946&quot;,
+      &quot;createdAt&quot;: &quot;2025-12-27T01:15:00Z&quot;
+    }
+  ],
+  &quot;pagination&quot;: {
+    &quot;page&quot;: 1,
+    &quot;pageSize&quot;: 20,
+    &quot;total&quot;: 45,
+    &quot;totalPages&quot;: 3
+  }
+}
+</code></pre>
+<p><strong>Features</strong>:
+- Paginated transaction history
+- Shows transaction type (EARNED, REDEEMED, EXPIRED, ADJUSTED)
+- Displays points amount and balance after transaction
+- Links to campaign and order/transaction
+- Ordered by most recent first
+- Configurable page size (max 100)</p>
+<hr />
+<h4>Endpoint 3: Get Campaign Rewards</h4>
+<pre><code class="language-http">GET /api/rewards/me/campaigns/rewards?userId={userId}
+</code></pre>
+<p><strong>Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;rewards&quot;: [
+    {
+      &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+      &quot;campaignName&quot;: &quot;Welcome Bonus&quot;,
+      &quot;campaignCode&quot;: &quot;WELCOME100&quot;,
+      &quot;rewardType&quot;: &quot;POINTS&quot;,
+      &quot;rewardDetails&quot;: &quot;{\&quot;points\&quot;:100}&quot;,
+      &quot;transactionId&quot;: &quot;TXN-1766778102946&quot;,
+      &quot;executedAt&quot;: &quot;2025-12-27T01:15:00Z&quot;
+    }
+  ],
+  &quot;count&quot;: 16
+}
+</code></pre>
+<p><strong>Features</strong>:
+- Shows all rewards earned from campaigns
+- Includes campaign details (name, code)
+- Shows reward type and details
+- Links to original transaction
+- Limited to last 100 rewards
+- Ordered by most recent first</p>
+<hr />
+<h4>Endpoint 4: Get Available Campaigns</h4>
+<pre><code class="language-http">GET /api/rewards/campaigns/available?userId={userId}
+</code></pre>
+<p><strong>Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;campaigns&quot;: [
+    {
+      &quot;id&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+      &quot;name&quot;: &quot;Welcome Bonus&quot;,
+      &quot;code&quot;: &quot;WELCOME100&quot;,
+      &quot;description&quot;: &quot;Earn 100 points on your first purchase&quot;,
+      &quot;type&quot;: &quot;points&quot;,
+      &quot;startAt&quot;: &quot;2025-01-01T00:00:00Z&quot;,
+      &quot;endAt&quot;: &quot;2025-12-31T23:59:59Z&quot;,
+      &quot;status&quot;: &quot;ACTIVE&quot;,
+      &quot;isEnrolled&quot;: false
+    }
+  ],
+  &quot;count&quot;: 5
+}
+</code></pre>
+<p><strong>Features</strong>:
+- Lists all active campaigns
+- Filters by current date (between startAt and endAt)
+- Shows enrollment status if userId provided
+- Includes campaign details and dates</p>
+<hr />
+<h4>Endpoint 5: Enroll in Campaign</h4>
+<pre><code class="language-http">POST /api/rewards/campaigns/{id}/enroll?userId={userId}
+</code></pre>
+<p><strong>Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;message&quot;: &quot;Successfully enrolled in campaign&quot;,
+  &quot;enrollment&quot;: {
+    &quot;id&quot;: 1,
+    &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+    &quot;status&quot;: &quot;ACTIVE&quot;,
+    &quot;enrolledAt&quot;: &quot;2025-12-27T01:30:00Z&quot;
+  }
+}
+</code></pre>
+<p><strong>Features</strong>:
+- Enrolls user in a campaign
+- Validates campaign exists and is active
+- Prevents duplicate enrollments
+- Creates enrollment record with ACTIVE status</p>
+<hr />
+<h3>2. Entity Models ✅</h3>
+<p>Created 4 new entity models in <code>customer-api/Models/</code>:</p>
+<h4><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/MemberPoints.cs"><code>MemberPoints.cs</code></a></h4>
+<ul>
+<li>Tracks current points balance</li>
+<li>Lifetime points earned</li>
+<li>Points earned this month</li>
+<li>Points redeemed</li>
+<li>Member tier</li>
+</ul>
+<h4><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/PointsTransaction.cs"><code>PointsTransaction.cs</code></a></h4>
+<ul>
+<li>Transaction type (EARNED, REDEEMED, etc.)</li>
+<li>Points amount</li>
+<li>Balance after transaction</li>
+<li>Campaign and order references</li>
+<li>Description and metadata</li>
+</ul>
+<h4><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/CampaignEnrollment.cs"><code>CampaignEnrollment.cs</code></a></h4>
+<ul>
+<li>Campaign and member IDs</li>
+<li>Enrollment status</li>
+<li>Progress tracking (JSONB)</li>
+<li>Rewards earned (JSONB)</li>
+</ul>
+<h4><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/CampaignExecution.cs"><code>CampaignExecution.cs</code></a></h4>
+<ul>
+<li>Campaign ID and member ID</li>
+<li>Transaction ID</li>
+<li>Reward type and details</li>
+<li>Execution timestamp</li>
+</ul>
+<hr />
+<h3>3. DbContext Updates ✅</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/customer-api/Data/LoyaltyDbContext.cs"><code>customer-api/Data/LoyaltyDbContext.cs</code></a></p>
+<p><strong>Changes</strong>:
+- Added <code>DbSet&lt;MemberPoints&gt;</code> property
+- Added <code>DbSet&lt;PointsTransaction&gt;</code> property
+- Added <code>DbSet&lt;CampaignEnrollment&gt;</code> property
+- Added <code>DbSet&lt;CampaignExecution&gt;</code> property
+- Configured table mappings in <code>OnModelCreating</code></p>
+<hr />
+<h3>4. API Test File ✅</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/customer-api/Tests/RewardsApi.http"><code>customer-api/Tests/RewardsApi.http</code></a></p>
+<p>Created HTTP test file with sample requests for all endpoints.</p>
+<hr />
+<h2>Testing Steps</h2>
+<h3>1. Rebuild Customer API</h3>
+<pre><code class="language-bash">cd d:/Development/open-loyalty-program
+docker-compose build customer-api
+</code></pre>
+<hr />
+<h3>2. Restart Customer API</h3>
+<pre><code class="language-bash">docker-compose up -d customer-api
+</code></pre>
+<hr />
+<h3>3. Test API Endpoints</h3>
+<p>Use the HTTP test file or curl commands:</p>
+<h4>Test 1: Get Points Balance</h4>
+<pre><code class="language-bash">curl &quot;http://localhost:5002/api/rewards/me/points?userId=b87e67ca-5d0f-47fe-91c2-68db92d14899&quot;
+</code></pre>
+<p><strong>Expected Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;pointsBalance&quot;: 100,
+  &quot;lifetimePoints&quot;: 100,
+  &quot;tier&quot;: &quot;BRONZE&quot;,
+  &quot;pointsEarnedThisMonth&quot;: 100,
+  &quot;pointsRedeemed&quot;: 0,
+  &quot;lastUpdated&quot;: &quot;2025-12-27T...&quot;
+}
+</code></pre>
+<hr />
+<h4>Test 2: Get Points History</h4>
+<pre><code class="language-bash">curl &quot;http://localhost:5002/api/rewards/me/points/history?userId=b87e67ca-5d0f-47fe-91c2-68db92d14899&amp;page=1&amp;pageSize=10&quot;
+</code></pre>
+<p><strong>Expected Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;transactions&quot;: [
+    {
+      &quot;id&quot;: 1,
+      &quot;type&quot;: &quot;EARNED&quot;,
+      &quot;points&quot;: 100,
+      &quot;balanceAfter&quot;: 100,
+      &quot;description&quot;: &quot;Points earned from campaign...&quot;,
+      &quot;campaignId&quot;: &quot;...&quot;,
+      &quot;orderId&quot;: &quot;TXN-...&quot;,
+      &quot;createdAt&quot;: &quot;2025-12-27T...&quot;
+    }
+  ],
+  &quot;pagination&quot;: {
+    &quot;page&quot;: 1,
+    &quot;pageSize&quot;: 10,
+    &quot;total&quot;: 1,
+    &quot;totalPages&quot;: 1
+  }
+}
+</code></pre>
+<hr />
+<h4>Test 3: Get Campaign Rewards</h4>
+<pre><code class="language-bash">curl &quot;http://localhost:5002/api/rewards/me/campaigns/rewards?userId=b87e67ca-5d0f-47fe-91c2-68db92d14899&quot;
+</code></pre>
+<p><strong>Expected Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;rewards&quot;: [
+    {
+      &quot;campaignId&quot;: &quot;...&quot;,
+      &quot;campaignName&quot;: &quot;Welcome Bonus&quot;,
+      &quot;campaignCode&quot;: &quot;WELCOME100&quot;,
+      &quot;rewardType&quot;: &quot;POINTS&quot;,
+      &quot;rewardDetails&quot;: &quot;{\&quot;points\&quot;:100}&quot;,
+      &quot;transactionId&quot;: &quot;TXN-...&quot;,
+      &quot;executedAt&quot;: &quot;2025-12-27T...&quot;
+    }
+  ],
+  &quot;count&quot;: 1
+}
+</code></pre>
+<hr />
+<h4>Test 4: Get Available Campaigns</h4>
+<pre><code class="language-bash">curl &quot;http://localhost:5002/api/rewards/campaigns/available?userId=b87e67ca-5d0f-47fe-91c2-68db92d14899&quot;
+</code></pre>
+<p><strong>Expected Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;campaigns&quot;: [
+    {
+      &quot;id&quot;: &quot;...&quot;,
+      &quot;name&quot;: &quot;Welcome Bonus&quot;,
+      &quot;code&quot;: &quot;WELCOME100&quot;,
+      &quot;description&quot;: &quot;...&quot;,
+      &quot;type&quot;: &quot;points&quot;,
+      &quot;startAt&quot;: &quot;...&quot;,
+      &quot;endAt&quot;: &quot;...&quot;,
+      &quot;status&quot;: &quot;ACTIVE&quot;,
+      &quot;isEnrolled&quot;: false
+    }
+  ],
+  &quot;count&quot;: 1
+}
+</code></pre>
+<hr />
+<h4>Test 5: Enroll in Campaign</h4>
+<pre><code class="language-bash">curl -X POST &quot;http://localhost:5002/api/rewards/campaigns/d82dc3a7-6e51-4a75-9b24-2633fbfa87d6/enroll?userId=b87e67ca-5d0f-47fe-91c2-68db92d14899&quot;
+</code></pre>
+<p><strong>Expected Response</strong>:</p>
+<pre><code class="language-json">{
+  &quot;message&quot;: &quot;Successfully enrolled in campaign&quot;,
+  &quot;enrollment&quot;: {
+    &quot;id&quot;: 1,
+    &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+    &quot;status&quot;: &quot;ACTIVE&quot;,
+    &quot;enrolledAt&quot;: &quot;2025-12-27T...&quot;
+  }
+}
+</code></pre>
+<hr />
+<h2>Files Created/Modified</h2>
+<h3>Created Files:</h3>
+<ol>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Controllers/RewardsController.cs"><code>customer-api/Controllers/RewardsController.cs</code></a></li>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/MemberPoints.cs"><code>customer-api/Models/MemberPoints.cs</code></a></li>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/PointsTransaction.cs"><code>customer-api/Models/PointsTransaction.cs</code></a></li>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/CampaignEnrollment.cs"><code>customer-api/Models/CampaignEnrollment.cs</code></a></li>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Models/CampaignExecution.cs"><code>customer-api/Models/CampaignExecution.cs</code></a></li>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Tests/RewardsApi.http"><code>customer-api/Tests/RewardsApi.http</code></a></li>
+</ol>
+<h3>Modified Files:</h3>
+<ol>
+<li><a href="file:///d:/Development/open-loyalty-program/customer-api/Data/LoyaltyDbContext.cs"><code>customer-api/Data/LoyaltyDbContext.cs</code></a> - Added DbSets and table mappings</li>
+</ol>
+<hr />
+<h2>API Documentation</h2>
+<h3>Authentication Note</h3>
+<blockquote>
+<p><strong>IMPORTANT</strong>: Currently, the API uses a <code>userId</code> query parameter for testing. In production, this should be replaced with JWT token authentication where the userId is extracted from the token claims.</p>
+</blockquote>
+<h3>Error Responses</h3>
+<p>All endpoints return appropriate HTTP status codes:
+- <code>200 OK</code> - Success
+- <code>400 Bad Request</code> - Missing or invalid parameters
+- <code>404 Not Found</code> - Resource not found
+- <code>500 Internal Server Error</code> - Server error</p>
+<p>Example error response:</p>
+<pre><code class="language-json">{
+  &quot;error&quot;: &quot;userId query parameter is required for testing&quot;
+}
+</code></pre>
+<hr />
+<h2>Integration with Frontend</h2>
+<p>The Customer API is now ready to be consumed by the customer-web frontend. The next step is to create React components that call these endpoints.</p>
+<h3>Recommended UI Components:</h3>
+<ol>
+<li><strong>Points Balance Widget</strong> - Dashboard card showing current balance and tier</li>
+<li><strong>Points History Table</strong> - Paginated table of all transactions</li>
+<li><strong>Campaign Rewards List</strong> - List of rewards earned from campaigns</li>
+<li><strong>Available Campaigns Grid</strong> - Cards showing active campaigns with enroll button</li>
+<li><strong>Enrollment Confirmation</strong> - Modal or toast notification on successful enrollment</li>
+</ol>
+<hr />
+<h2>Next Steps</h2>
+<h3>Option 1: Create Customer Web UI (Recommended)</h3>
+<p>Implement React components to consume these APIs:
+- Points Balance Dashboard
+- Points History Page
+- Campaign Rewards Page
+- Available Campaigns Page</p>
+<h3>Option 2: Proceed to Phase 3 (Admin Analytics)</h3>
+<p>Create admin-facing analytics endpoints:
+- Campaign performance metrics
+- Transaction history for all users
+- Campaign leaderboards
+- Revenue and engagement reports</p>
+<hr />
+<h2>Success Criteria</h2>
+<p>✅ <strong>API endpoints created</strong> - 5 endpoints for customer rewards
+✅ <strong>Entity models defined</strong> - 4 models for campaign completion
+✅ <strong>DbContext updated</strong> - DbSets and table mappings added
+✅ <strong>Test file created</strong> - HTTP tests for all endpoints
+✅ <strong>Ready for frontend integration</strong> - APIs can be consumed by React app</p>
+<hr />
+<h2>Troubleshooting</h2>
+<h3>Issue: "userId query parameter is required"</h3>
+<p><strong>Solution</strong>: Add <code>?userId={guid}</code> to the request URL</p>
+<h3>Issue: "Campaign not found or inactive"</h3>
+<p><strong>Solution</strong>: Verify campaign exists in database and status is "ACTIVE"</p>
+<h3>Issue: "Already enrolled in this campaign"</h3>
+<p><strong>Solution</strong>: User has already enrolled, check enrollment status first</p>
+<h3>Issue: Empty response for points balance</h3>
+<p><strong>Solution</strong>: User may not have any points yet, API returns default values (0 points, BRONZE tier)</p>
+<hr />
+<h2>Summary</h2>
+<p>Phase 2 provides <strong>complete customer-facing API</strong> for:
+- ✅ Viewing points balance and tier
+- ✅ Browsing transaction history
+- ✅ Seeing rewards earned from campaigns
+- ✅ Discovering available campaigns
+- ✅ Enrolling in campaigns</p>
+<p>The APIs are RESTful, well-documented, and ready for frontend integration! 🎉</p></body></html>

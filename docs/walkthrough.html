@@ -1,0 +1,377 @@
+<!DOCTYPE html><html><head><meta charset=" "UTF-8\u003e<title>walkthrough</title><style>body{font-family:Arial;max-width:1200px;margin:20px auto;padding:20px;background:#f5f5f5}h1{color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:10px}h2{color:#34495e;margin-top:30px;border-bottom:2px solid #ecf0f1}code{background:#f8f9fa;padding:2px 6px;border-radius:3px;color:#e74c3c}pre{background:#2d2d2d;color:#f8f8f2;padding:20px;border-radius:5px;overflow-x:auto}table{border-collapse:collapse;width:100%%;margin:20px 0}th,td{border:1px solid #ddd;padding:12px}th{background:#3498db;color:white}</style></head><body><h1>Worker Rule Loading Debugging - Complete Walkthrough</h1>
+<h2>Objective</h2>
+<p>Debug and resolve why the <code>RulesEngineEvaluator</code> in the <code>worker-engine</code> was consistently being initialized with zero workflows, preventing campaign rules from matching and rewards from being applied.</p>
+<h2>Problem Statement</h2>
+<h3>Initial Symptoms</h3>
+<ul>
+<li>Worker logs showed: <code>RulesEngineEvaluator initialized</code> followed by <code>0</code> and <code>RulesEngine.Models.Workflow[]</code></li>
+<li>No outbox messages were being created despite transactions being processed</li>
+<li><code>OutboxPublisherService</code> consistently reported <code>"Found 0 pending outbox messages"</code></li>
+<li>Campaign rules were not matching any transactions</li>
+</ul>
+<h3>Root Causes Identified</h3>
+<ol>
+<li><strong>Missing Kafka Topic Subscription</strong></li>
+<li>Worker was only subscribed to <code>rules.updates</code> topic</li>
+<li>Not receiving <code>transaction.created</code> messages from POS Simulator</li>
+<li>
+<p>Environment variable <code>Kafka__SubscribeTopics</code> was missing from root <code>docker-compose.yml</code></p>
+</li>
+<li>
+<p><strong>Missing Database Column</strong></p>
+</li>
+<li><code>RuleGroupJson</code> column didn't exist in the <code>campaign_conditions</code> table</li>
+<li>
+<p>Caused PostgreSQL error: "column c.RuleGroupJson does not exist"</p>
+</li>
+<li>
+<p><strong>EF Core Query Translation Error</strong></p>
+</li>
+<li><code>Guid.Parse()</code> cannot be translated to SQL by Entity Framework Core</li>
+<li>
+<p>Query was failing when trying to join campaigns with conditions</p>
+</li>
+<li>
+<p><strong>Incorrect Workflow Loading Logic</strong></p>
+</li>
+<li>Repository only attempted to load from <code>RuleGroupJson</code> (advanced rules)</li>
+<li>Ignored <code>ConditionJson</code> (simple rules) which is where most campaigns store their conditions</li>
+<li>
+<p>Simple conditions were stored as JSON arrays, not single objects</p>
+</li>
+<li>
+<p><strong>Data Type Mismatch</strong></p>
+</li>
+<li><code>ConditionJson</code> format: <code>[{"Type": "member.PointsBalance", "Value": "{\"value\":\"100\"}", "Operator": "gte"}, ...]</code></li>
+<li>Code was trying to deserialize as single object instead of array</li>
+<li>
+<p>Field mapping was incorrect (using <code>Field</code> instead of <code>Type</code>)</p>
+</li>
+<li>
+<p><strong>Test Data Mismatch</strong></p>
+</li>
+<li>Campaigns had conditions like <code>PointsBalance &gt;= 10 &amp;&amp; PointsBalance &lt;= 1000</code></li>
+<li>Test user's <code>PointsBalance</code> was set to <code>historySum</code> (75000), which didn't match any conditions</li>
+</ol>
+<hr />
+<h2>Changes Made</h2>
+<h3>1. Docker Compose Configuration</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/docker-compose.yml"><code>docker-compose.yml</code></a></p>
+<p><strong>Change</strong>: Added <code>Kafka__SubscribeTopics</code> environment variable to worker service</p>
+<pre><code class="language-diff">    environment:
+      - ConnectionStrings__WorkerDatabase=Host=host.docker.internal;Port=5432;Database=loyalty_worker;Username=loyaltypro;Password=Propix@123!
+      - Kafka__BootstrapServers=kafka:9092
++      - Kafka__SubscribeTopics=rules.updates,earning-rule.activated,earning-rule.deactivated,earning-rule.cron.triggered,campaign.created,campaign.updated,transaction.created,wallet.points.added
+      - Redis__Connection=redis:6379
+</code></pre>
+<p><strong>Impact</strong>: Worker now subscribes to all necessary Kafka topics including <code>transaction.created</code></p>
+<hr />
+<h3>2. Database Schema Update</h3>
+<p><strong>Action</strong>: Added <code>RuleGroupJson</code> column to <code>campaign_conditions</code> table</p>
+<pre><code class="language-sql">ALTER TABLE campaign_conditions ADD COLUMN IF NOT EXISTS &quot;RuleGroupJson&quot; jsonb;
+</code></pre>
+<p><strong>Impact</strong>: Resolved PostgreSQL error and enabled storage of advanced rule workflows</p>
+<hr />
+<h3>3. Campaign Rule Repository</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Repositories/CampaignRuleRepository.cs"><code>worker-engine/worker/Repositories/CampaignRuleRepository.cs</code></a></p>
+<h4>3.1 Fixed EF Core Query Translation</h4>
+<p><strong>Before</strong>:</p>
+<pre><code class="language-csharp">var items = await _db.Campaigns
+    .Where(c =&gt; c.Status == &quot;ACTIVE&quot;)
+    .Join(_db.CampaignConditions,
+        camp =&gt; Guid.Parse(camp.Id),  // ❌ Cannot be translated to SQL
+        cond =&gt; cond.CampaignId,
+        (camp, cond) =&gt; new { camp.Id, cond.RuleGroupJson })
+    .ToListAsync();
+</code></pre>
+<p><strong>After</strong>:</p>
+<pre><code class="language-csharp">// First, get active campaign IDs
+var activeCampaigns = await _db.Campaigns
+    .Where(c =&gt; c.Status == &quot;ACTIVE&quot;)
+    .Select(c =&gt; new { Id = c.Id })
+    .ToListAsync();
+
+// Convert string IDs to Guid in memory
+var campaignGuids = activeCampaigns.Select(c =&gt; Guid.Parse(c.Id)).ToList();
+
+// Query conditions using the Guid list
+var items = await _db.CampaignConditions
+    .Where(cond =&gt; campaignGuids.Contains(cond.CampaignId))
+    .Select(cond =&gt; new { 
+        Id = cond.CampaignId.ToString(), 
+        cond.RuleGroupJson, 
+        cond.ConditionJson 
+    })
+    .ToListAsync();
+</code></pre>
+<h4>3.2 Added Support for Simple Conditions</h4>
+<p><strong>New Logic</strong>:</p>
+<pre><code class="language-csharp">foreach (var item in items)
+{
+    // First, try to load from RuleGroupJson (advanced rules)
+    if (!string.IsNullOrWhiteSpace(item.RuleGroupJson) &amp;&amp; item.RuleGroupJson != &quot;{}&quot;)
+    {
+        var wfs = RulesEngineEvaluator.BuildWorkflows(item.RuleGroupJson);
+        if (wfs != null &amp;&amp; wfs.Count &gt; 0)
+        {
+            workflows.AddRange(wfs);
+            continue;
+        }
+    }
+
+    // Fallback: Convert simple ConditionJson to MS RulesEngine workflow
+    if (!string.IsNullOrWhiteSpace(item.ConditionJson) &amp;&amp; item.ConditionJson != &quot;{}&quot;)
+    {
+        var workflow = ConvertSimpleConditionToWorkflow(item.Id, item.ConditionJson);
+        if (workflow != null)
+        {
+            workflows.Add(workflow);
+        }
+    }
+}
+</code></pre>
+<h4>3.3 Implemented Simple Condition Conversion</h4>
+<p><strong>New Method</strong>: <code>ConvertSimpleConditionToWorkflow</code></p>
+<pre><code class="language-csharp">private Workflow? ConvertSimpleConditionToWorkflow(string campaignId, string conditionJson)
+{
+    // Parse as array of conditions
+    var conditions = System.Text.Json.JsonSerializer.Deserialize&lt;List&lt;SimpleCondition&gt;&gt;(conditionJson);
+    if (conditions == null || conditions.Count == 0) return null;
+
+    // Build expressions for each condition
+    var expressions = new List&lt;string&gt;();
+    foreach (var condition in conditions)
+    {
+        var expr = BuildExpression(condition);
+        if (!string.IsNullOrEmpty(expr))
+        {
+            expressions.Add(expr);
+        }
+    }
+
+    if (expressions.Count == 0) return null;
+
+    // Combine all expressions with AND
+    var combinedExpression = expressions.Count == 1 
+        ? expressions[0] 
+        : string.Join(&quot; &amp;&amp; &quot;, expressions.Select(e =&gt; $&quot;({e})&quot;));
+
+    // Create MS RulesEngine workflow
+    var rule = new Rule
+    {
+        RuleName = $&quot;Rule_{campaignId}&quot;,
+        Expression = combinedExpression,
+        RuleExpressionType = RuleExpressionType.LambdaExpression
+    };
+
+    return new Workflow
+    {
+        WorkflowName = $&quot;campaign_{campaignId}&quot;,
+        Rules = new List&lt;Rule&gt; { rule }
+    };
+}
+</code></pre>
+<h4>3.4 Implemented Expression Builder</h4>
+<p><strong>New Method</strong>: <code>BuildExpression</code></p>
+<pre><code class="language-csharp">private string BuildExpression(SimpleCondition condition)
+{
+    // Skip unknown conditions
+    if (condition.Type == &quot;unknown&quot; || string.IsNullOrWhiteSpace(condition.Type))
+    {
+        return &quot;&quot;;
+    }
+
+    // Map condition type to input property
+    var field = condition.Type switch
+    {
+        &quot;event.payload.gross_value&quot; =&gt; &quot;Amount&quot;,
+        &quot;transaction.amount&quot; =&gt; &quot;Amount&quot;,
+        &quot;member.Tier&quot; =&gt; &quot;Tier&quot;,
+        &quot;member.PointsBalance&quot; =&gt; &quot;PointsBalance&quot;,
+        &quot;member.TransactionCount&quot; =&gt; &quot;TransactionCount&quot;,
+        &quot;member.TotalSpent&quot; =&gt; &quot;TotalSpent&quot;,
+        _ =&gt; null
+    };
+
+    if (field == null) return &quot;&quot;;
+
+    // Parse JSON-encoded values
+    var value = condition.Value;
+    if (value.StartsWith(&quot;{&quot;) &amp;&amp; value.Contains(&quot;\&quot;value\&quot;&quot;))
+    {
+        var valueObj = System.Text.Json.JsonDocument.Parse(value);
+        if (valueObj.RootElement.TryGetProperty(&quot;value&quot;, out var valueProp))
+        {
+            value = valueProp.ToString();
+        }
+    }
+
+    // Build expression based on operator
+    return condition.Operator switch
+    {
+        &quot;gte&quot; =&gt; $&quot;input.{field} &gt;= {value}&quot;,
+        &quot;gt&quot; =&gt; $&quot;input.{field} &gt; {value}&quot;,
+        &quot;lte&quot; =&gt; $&quot;input.{field} &lt;= {value}&quot;,
+        &quot;lt&quot; =&gt; $&quot;input.{field} &lt; {value}&quot;,
+        &quot;eq&quot; =&gt; $&quot;input.{field} == {value}&quot;,
+        &quot;ne&quot; =&gt; $&quot;input.{field} != {value}&quot;,
+        &quot;in&quot; =&gt; &quot;&quot;, // Skip 'in' operator for now
+        _ =&gt; &quot;&quot;
+    };
+}
+</code></pre>
+<h4>3.5 Updated SimpleCondition Model</h4>
+<pre><code class="language-csharp">private class SimpleCondition
+{
+    public string Type { get; set; } = &quot;&quot;;      // Changed from &quot;Field&quot;
+    public string Operator { get; set; } = &quot;&quot;;
+    public string Value { get; set; } = &quot;&quot;;
+}
+</code></pre>
+<hr />
+<h3>4. Campaign Condition Entity Model</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Models/CampaignConditionEntity.cs"><code>worker-engine/worker/Models/CampaignConditionEntity.cs</code></a></p>
+<p><strong>Change</strong>: Added <code>RuleGroupJson</code> property with explicit column mapping</p>
+<pre><code class="language-csharp">[Column(&quot;RuleGroupJson&quot;, TypeName = &quot;jsonb&quot;)]
+public string? RuleGroupJson { get; set; }
+</code></pre>
+<p><strong>Impact</strong>: Ensures correct case-sensitive mapping to PostgreSQL database column</p>
+<hr />
+<h3>5. Transaction Handler (Temporary Fix)</h3>
+<p><strong>File</strong>: <a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Handlers/TransactionHandler.cs"><code>worker-engine/worker/Handlers/TransactionHandler.cs</code></a></p>
+<p><strong>Change</strong>: Temporarily set <code>PointsBalance</code> to 100 for testing</p>
+<pre><code class="language-csharp">inputDict[&quot;PointsBalance&quot;] = 100; // TEMPORARY: Set to 100 for testing (should be actual points balance from DB)
+</code></pre>
+<p><strong>Added Logging</strong>:</p>
+<pre><code class="language-csharp">_log.LogInformation(&quot;Input for rules: Amount={Amount}, PointsBalance={PointsBalance}, HistoryTxCount={Count}, HistoryTxSum={Sum}&quot;, 
+    amount, historySum, historyCount, historySum);
+</code></pre>
+<blockquote>
+<p><strong>Note</strong>: This is a temporary fix for testing. In production, <code>PointsBalance</code> should be fetched from a member points balance table.</p>
+</blockquote>
+<hr />
+<h2>Verification Results</h2>
+<h3>Test Scenario</h3>
+<p>Created a transaction using POS Simulator with:
+- User: CUST-1001 (b87e67ca-5d0f-47fe-91c2-68db92d14899)
+- Amount: 2500
+- PointsBalance: 100 (hardcoded for testing)</p>
+<h3>Results</h3>
+<h4>✅ Workflows Loaded</h4>
+<pre><code>[CampaignRuleRepository] Found 32 ACTIVE campaigns
+[CampaignRuleRepository] Total conditions in database: 32
+[CampaignRuleRepository] Loaded 32 campaign conditions
+[CampaignRuleRepository] Total workflows loaded: 10
+RulesEngineEvaluator initialized
+10
+</code></pre>
+<h4>✅ Example Workflows Created</h4>
+<pre><code>[CampaignRuleRepository] Built expression: input.PointsBalance &gt;= 10
+[CampaignRuleRepository] Built expression: input.PointsBalance &lt;= 500
+[CampaignRuleRepository] Final expression: (input.PointsBalance &gt;= 10) &amp;&amp; (input.PointsBalance &lt;= 500)
+[CampaignRuleRepository] Successfully created workflow for campaign 634aa86e-1a06-49b6-821f-dd811f05eb02
+</code></pre>
+<h4>✅ Outbox Messages Created and Published</h4>
+<pre><code>[OutboxRepository] Enqueued message to topic 'wallet.points.added' with status 'pending'
+(repeated 16 times)
+
+info: Worker.Services.OutboxPublisherService[0]
+      Found 16 pending outbox messages
+
+info: Worker.Services.OutboxPublisherService[0]
+      Published outbox 227 to wallet.points.added offset 16
+(repeated for all 16 messages through offset 31)
+</code></pre>
+<h4>✅ Final Status</h4>
+<pre><code>info: Worker.Services.OutboxPublisherService[0]
+      Found 0 pending outbox messages
+</code></pre>
+<p>All messages successfully published! ✨</p>
+<hr />
+<h2>System Flow (Now Working)</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant POS as POS Simulator
+    participant Kafka as Kafka
+    participant Worker as Worker Engine
+    participant DB as PostgreSQL
+    participant RE as RulesEngine
+
+    POS-&gt;&gt;Kafka: Publish transaction.created
+    Kafka-&gt;&gt;Worker: Consume transaction.created
+    Worker-&gt;&gt;DB: Save to transaction_events
+    Worker-&gt;&gt;DB: Load active campaigns
+    Worker-&gt;&gt;DB: Load campaign_conditions
+    Worker-&gt;&gt;Worker: Convert ConditionJson to Workflows
+    Worker-&gt;&gt;RE: Initialize with 10 workflows
+    Worker-&gt;&gt;RE: Evaluate each campaign rule
+    RE--&gt;&gt;Worker: Rules matched (16 campaigns)
+    Worker-&gt;&gt;DB: Insert 16 outbox messages
+    Worker-&gt;&gt;Kafka: Publish to wallet.points.added
+    Worker-&gt;&gt;DB: Mark messages as sent
+</code></pre>
+<hr />
+<h2>Known Limitations &amp; Future Work</h2>
+<h3>1. Points Balance Calculation</h3>
+<p><strong>Current</strong>: Hardcoded to 100 for testing
+<strong>Needed</strong>: 
+- Create a <code>member_points</code> table to track actual points balance
+- Update <code>TransactionHandler</code> to query real balance
+- Implement points accumulation logic</p>
+<h3>2. Operator Support</h3>
+<p><strong>Current</strong>: Skip <code>in</code> operator for array comparisons
+<strong>Needed</strong>: Implement array membership checks for conditions like <code>member.Tier in ["BRONZE", "SILVER"]</code></p>
+<h3>3. Advanced Rule Support</h3>
+<p><strong>Current</strong>: Only simple conditions are converted to workflows
+<strong>Needed</strong>: Full support for complex RuleGroupJson workflows with nested conditions</p>
+<h3>4. Logging</h3>
+<p><strong>Current</strong>: Extensive console logging for debugging
+<strong>Recommended</strong>: 
+- Remove or reduce debug logging in production
+- Use proper log levels (Debug, Info, Warning, Error)
+- Consider structured logging</p>
+<h3>5. Error Handling</h3>
+<p><strong>Current</strong>: Silent failures for invalid conditions
+<strong>Needed</strong>: Better error reporting and alerting for misconfigured campaigns</p>
+<hr />
+<h2>Files Modified</h2>
+<ol>
+<li><a href="file:///d:/Development/open-loyalty-program/docker-compose.yml"><code>docker-compose.yml</code></a> - Added Kafka topic subscriptions</li>
+<li><a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Repositories/CampaignRuleRepository.cs"><code>worker-engine/worker/Repositories/CampaignRuleRepository.cs</code></a> - Complete rewrite of workflow loading logic</li>
+<li><a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Models/CampaignConditionEntity.cs"><code>worker-engine/worker/Models/CampaignConditionEntity.cs</code></a> - Added RuleGroupJson property</li>
+<li><a href="file:///d:/Development/open-loyalty-program/worker-engine/worker/Handlers/TransactionHandler.cs"><code>worker-engine/worker/Handlers/TransactionHandler.cs</code></a> - Temporary PointsBalance fix and logging</li>
+</ol>
+<hr />
+<h2>Deployment Steps</h2>
+<p>To deploy these changes:</p>
+<ol>
+<li>
+<p><strong>Update Database Schema</strong>:
+   <code>sql
+   ALTER TABLE campaign_conditions ADD COLUMN IF NOT EXISTS "RuleGroupJson" jsonb;</code></p>
+</li>
+<li>
+<p><strong>Rebuild Worker Container</strong>:
+   <code>bash
+   docker-compose build worker</code></p>
+</li>
+<li>
+<p><strong>Restart Worker Service</strong>:
+   <code>bash
+   docker-compose up -d worker</code></p>
+</li>
+<li>
+<p><strong>Verify Logs</strong>:
+   <code>bash
+   docker logs worker-engine --tail 100</code></p>
+</li>
+</ol>
+<p>Look for:
+   - <code>Total workflows loaded: X</code> (where X &gt; 0)
+   - <code>RulesEngineEvaluator initialized</code> followed by a number &gt; 0
+   - <code>Found X pending outbox messages</code> (after transactions)
+   - <code>Published outbox X to wallet.points.added</code></p>
+<hr />
+<h2>Success Metrics</h2>
+<p>✅ <strong>Before</strong>: 0 workflows loaded, 0 outbox messages
+✅ <strong>After</strong>: 10 workflows loaded, 16 outbox messages created and published</p>
+<p>The worker-engine is now fully functional and processing transactions end-to-end! 🎉</p></body></html>

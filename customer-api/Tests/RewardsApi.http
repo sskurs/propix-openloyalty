@@ -1,0 +1,25 @@
+### Customer Rewards API Tests
+
+@baseUrl = http://localhost:5002/api
+@userId = b87e67ca-5d0f-47fe-91c2-68db92d14899
+
+### Get Points Balance
+GET {{baseUrl}}/rewards/me/points?userId={{userId}}
+
+### Get Points History (Page 1)
+GET {{baseUrl}}/rewards/me/points/history?userId={{userId}}&page=1&pageSize=20
+
+### Get Points History (Page 2)
+GET {{baseUrl}}/rewards/me/points/history?userId={{userId}}&page=2&pageSize=10
+
+### Get Campaign Rewards
+GET {{baseUrl}}/rewards/me/campaigns/rewards?userId={{userId}}
+
+### Get Available Campaigns
+GET {{baseUrl}}/rewards/campaigns/available
+
+### Get Available Campaigns (with enrollment status)
+GET {{baseUrl}}/rewards/campaigns/available?userId={{userId}}
+
+### Enroll in Campaign
+POST {{baseUrl}}/rewards/campaigns/d82dc3a7-6e51-4a75-9b24-2633fbfa87d6/enroll?userId={{userId}}

@@ -1,0 +1,96 @@
+services:
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    networks:
+      - loyalty-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+    networks:
+      - loyalty-network
+
+  kafka:
+    container_name: kafka
+    hostname: kafka
+    image: confluentinc/cp-kafka:7.2.2
+    depends_on:
+      - zookeeper
+    ports:
+      # Exposes 29092 for external connections to the broker
+      # Use kafka1:9092 for connections internal on the docker network
+      # See https://rmoff.net/2018/08/02/kafka-listeners-explained/ for details
+      - "19092:19092"
+    networks:
+      - loyalty-network
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:19092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:19092
+      KAFKA_BROKER_ID: 1
+      KAFKA_BROKER_RACK: "r1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_SCHEMA_REGISTRY_URL: "schemaregistry:8085"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: INFO
+      KAFKA_JMX_PORT: 9991
+
+  schemaregistry:
+    image: confluentinc/cp-schema-registry:5.4.10
+    restart: always
+    depends_on:
+      - zookeeper
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: "zookeeper:2181"
+      SCHEMA_REGISTRY_HOST_NAME: schemaregistry
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8085"
+    ports:
+      - 18085:8085
+    networks:
+      - loyalty-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    environment:
+      KAFKA_CLUSTERS_0_NAME: loyalty-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8080:8080"
+    networks:
+      - loyalty-network
+    depends_on:
+      - kafka
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      # Use the external Postgres on the host machine:
+      # Use the external Postgres on the host machine:
+      - ConnectionStrings__WorkerDatabase=Host=host.docker.internal;Port=5432;Database=loyalty_worker;Username=loyaltypro;Password=Propix@123!
+      - Kafka__BootstrapServers=kafka:9092
+      - Kafka__SubscribeTopics=rules.updates,earning-rule.activated,earning-rule.deactivated,earning-rule.cron.triggered,campaign.created,campaign.updated,transaction.created,wallet.points.added
+      - Kafka__ConsumerGroup=worker-group-debug-2
+      - Redis__Connection=redis:6379
+    depends_on:
+      - redis
+      - kafka
+    ports:
+      - "8085:8085"
+    networks:
+      - loyalty-network
+
+networks:
+  loyalty-network:
+    name: loyalty-network
+    external: true

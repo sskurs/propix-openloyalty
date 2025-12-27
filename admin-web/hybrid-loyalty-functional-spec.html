@@ -1,0 +1,737 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hybrid Loyalty Program - Functional Specification</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      color: #111827;
+      background: #f3f4f6;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+      background: #ffffff;
+    }
+    h1, h2, h3, h4 {
+      color: #111827;
+      margin-top: 2rem;
+      scroll-margin-top: 80px;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.5rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+    }
+    h3 {
+      font-size: 1.25rem;
+    }
+    h4 {
+      font-size: 1.1rem;
+    }
+    p {
+      margin: 0.5rem 0;
+    }
+    ul, ol {
+      padding-left: 1.5rem;
+    }
+    code {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.9em;
+      background: #f3f4f6;
+      padding: 0.1rem 0.25rem;
+      border-radius: 0.25rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      background: #e5f3ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      margin-left: 0.5rem;
+    }
+    .meta {
+      font-size: 0.85rem;
+      color: #6b7280;
+      margin-bottom: 1.5rem;
+    }
+    pre {
+      background: #111827;
+      color: #f9fafb;
+      padding: 1rem;
+      overflow-x: auto;
+      border-radius: 0.5rem;
+      font-size: 0.85rem;
+    }
+    header {
+      background: #111827;
+      color: #f9fafb;
+      padding: 1.5rem 1rem;
+      margin-bottom: 1.5rem;
+    }
+    header .inner {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .tagline {
+      margin-top: 0.25rem;
+      font-size: 0.95rem;
+      color: #e5e7eb;
+    }
+    .toc {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.95rem;
+    }
+    .toc h2 {
+      border-bottom: none;
+      margin-top: 0;
+      font-size: 1.1rem;
+    }
+    .toc ul {
+      margin: 0.25rem 0;
+      padding-left: 1.25rem;
+    }
+    .toc a {
+      text-decoration: none;
+      color: #2563eb;
+    }
+    .toc a:hover {
+      text-decoration: underline;
+    }
+    @media (max-width: 640px) {
+      .container {
+        padding: 1.5rem 1rem 3rem;
+      }
+      h1 {
+        font-size: 1.6rem;
+      }
+      h2 {
+        font-size: 1.25rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="inner">
+      <h1>Hybrid Loyalty Program – Functional Specification</h1>
+      <div class="meta">
+        Version 1.0 · Full Featured Loyalty (Points + Tiers + Cashback + Rewards + Gamification)
+      </div>
+      <p class="tagline">
+        This document defines the functional requirements, menu structure, UI layout, and main entities required to implement a production-ready hybrid loyalty program similar to Open Loyalty.
+      </p>
+    </div>
+  </header>
+  <main class="container">
+    <section class="toc">
+      <h2>Table of Contents</h2>
+      <ul>
+        <li><a href="#overview">1. System Overview</a></li>
+        <li><a href="#entities">2. Core Business Entities</a></li>
+        <li><a href="#rules">3. Hybrid Loyalty Rules</a></li>
+        <li><a href="#admin-menu">4. Admin Portal – Menu &amp; Submenus</a></li>
+        <li><a href="#member-portal">5. Member Portal – Menu Structure</a></li>
+        <li><a href="#ui-design">6. UI Design – Key Screen Layouts</a></li>
+        <li><a href="#technical">7. Technical &amp; Integration Requirements</a></li>
+        <li><a href="#data-model">8. Data Model (High Level)</a></li>
+        <li><a href="#security">9. Security &amp; Compliance</a></li>
+        <li><a href="#roadmap">10. Roadmap Extensions</a></li>
+      </ul>
+    </section>
+
+    <section id="overview">
+      <h2>1. System Overview</h2>
+      <p>
+        The Hybrid Loyalty System allows customers (members) to earn and redeem
+        <strong>points</strong>, progress through <strong>tier levels</strong>, receive
+        <strong>cashback/store credit</strong>, use <strong>coupons &amp; vouchers</strong>, participate
+        in <strong>campaigns</strong>, and unlock <strong>achievements/gamification rewards</strong>.
+      </p>
+      <p>The system supports:</p>
+      <ul>
+        <li>Online &amp; offline channels (POS + eCommerce + Mobile)</li>
+        <li>Multiple wallets (Points, Cashback, Gift, Promotional)</li>
+        <li>Multiple currencies and languages where required</li>
+        <li>Full member <strong>timeline tracking</strong> similar to Open Loyalty’s timeline</li>
+      </ul>
+    </section>
+
+    <section id="entities">
+      <h2>2. Core Business Entities</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Entity</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Member</td>
+            <td>Registered customer participating in the loyalty program.</td>
+          </tr>
+          <tr>
+            <td>Points Wallet</td>
+            <td>Balance of points earned from transactions and campaigns; subject to expiry rules.</td>
+          </tr>
+          <tr>
+            <td>Cashback Wallet</td>
+            <td>Monetary-equivalent balance (store credit) generated via cashback rules.</td>
+          </tr>
+          <tr>
+            <td>Gift / Promo Wallet</td>
+            <td>Special wallet for gift points, promo credits, or one-time grants.</td>
+          </tr>
+          <tr>
+            <td>Tiers</td>
+            <td>Loyalty levels (e.g., Bronze, Silver, Gold, Platinum) with progressive benefits.</td>
+          </tr>
+          <tr>
+            <td>Campaigns</td>
+            <td>Configurable rules that award points, cashback, or rewards based on events.</td>
+          </tr>
+          <tr>
+            <td>Rewards</td>
+            <td>Catalog items, vouchers, coupons, or gifts redeemable using points or cashback.</td>
+          </tr>
+          <tr>
+            <td>Coupons</td>
+            <td>Codes applied at checkout/POS to receive discounts or free items.</td>
+          </tr>
+          <tr>
+            <td>Achievements</td>
+            <td>Gamified milestones: badges, missions, streaks, or challenges.</td>
+          </tr>
+          <tr>
+            <td>Transactions</td>
+            <td>All monetary purchases, redemptions, adjustments, refunds, and expiries.</td>
+          </tr>
+          <tr>
+            <td>Timeline Events</td>
+            <td>Unified chronological log of all important member-related events (similar to Open Loyalty Timeline).</td>
+          </tr>
+          <tr>
+            <td>Store / Channel</td>
+            <td>Where the activity occurred (online store, physical branch, mobile app, partner, etc.).</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="rules">
+      <h2>3. Hybrid Loyalty Rules</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Functional Rules</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Points Earning</td>
+            <td>
+              <ul>
+                <li>Earn rate defined as <code>x points / currency unit</code> per channel, category, or product.</li>
+                <li>Tier multipliers (e.g., Silver: 1.2×, Gold: 1.5× base points).</li>
+                <li>Special campaigns (double points, category-based bonuses, birthday multipliers).</li>
+                <li>Support for negative/zero earn events (e.g., excluded products, staff purchases).</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Redemption Rules</td>
+            <td>
+              <ul>
+                <li>Redeem points for: inline discount, vouchers, catalog rewards, or cashback.</li>
+                <li>Minimum balance and minimum redemption thresholds.</li>
+                <li>Channel-based restrictions (e.g., online only, specific stores only).</li>
+                <li>Conversion rate configuration (e.g., 100 points = ₹10).</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Cashback Generation</td>
+            <td>
+              <ul>
+                <li>Campaign-based cashback: percentage of order value or fixed amount.</li>
+                <li>Brand/category/store specific cashback rules.</li>
+                <li>Cashback expiry policy independent from points.</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Tier Progression</td>
+            <td>
+              <ul>
+                <li>Progress based on yearly spend, number of transactions, or tier points.</li>
+                <li>Auto-upgrade when threshold is met; optional scheduled job to evaluate tiers.</li>
+                <li>Downgrade policy (e.g., after 12 months of inactivity or threshold not met).</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Expiry Policy</td>
+            <td>
+              <ul>
+                <li><strong>First Earn First Expire</strong> logic for points.</li>
+                <li>Global or wallet-specific expiry duration (e.g., 365 days).</li>
+                <li>Expiry jobs running daily and logged as timeline events.</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Returns / Refunds</td>
+            <td>
+              <ul>
+                <li>Reverse previously awarded points/cashback for refunded orders.</li>
+                <li>Reverse redemptions or adjust balances when orders are cancelled.</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Offline / POS</td>
+            <td>
+              <ul>
+                <li>Support for delayed synchronization of transactions.</li>
+                <li>Conflict/resync policies when the same member performs actions offline and online.</li>
+              </ul>
+            </td>
+          </tr>
+          <tr>
+            <td>Fraud Prevention</td>
+            <td>
+              <ul>
+                <li>Daily/weekly caps on points earning and redemption.</li>
+                <li>Manual review flags for suspicious activity.</li>
+                <li>IP/device tracking (if applicable) and blacklisting.</li>
+              </ul>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="admin-menu">
+      <h2>4. Admin Portal – Menu &amp; Submenus</h2>
+
+      <h3>4.1 Dashboard</h3>
+      <ul>
+        <li><strong>KPIs</strong>: Total members, active members, newly joined, total points issued, total points redeemed, points breakage.</li>
+        <li><strong>Charts</strong>: Daily/weekly points issuance vs redemption, campaign performance, tier distribution.</li>
+        <li><strong>Recent Activity</strong>: Latest member registrations, large redemptions, suspicious events.</li>
+      </ul>
+
+      <h3>4.2 Members</h3>
+      <ul>
+        <li><strong>Member List</strong>
+          <ul>
+            <li>Search and filter by: name, ID, phone, email, tier, join date, status.</li>
+            <li>Bulk actions: export, tag, activate/deactivate.</li>
+          </ul>
+        </li>
+        <li><strong>Member Profile View</strong> (Single Member View)
+          <ul>
+            <li>Profile &amp; Attributes</li>
+            <li>Wallet Balances (with drill-down)</li>
+            <li>Transactions (earn, redeem, expiry, adjustments)</li>
+            <li><strong>Timeline</strong> – chronological events:</li>
+            <ul>
+              <li>Points earned / redeemed / expired / adjusted</li>
+              <li>Tier changes (upgrade/downgrade)</li>
+              <li>Campaign participation events</li>
+              <li>Achievements unlocked</li>
+              <li>Coupons issued / used</li>
+              <li>Member data changes (optional)</li>
+            </ul>
+            <li>Campaigns enrolled &amp; performance</li>
+            <li>Vouchers &amp; Coupons assigned</li>
+            <li>Communication log (emails/SMS/push sent)</li>
+            <li>Internal notes &amp; tags</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>4.3 Wallets</h3>
+      <ul>
+        <li>Wallet Types configuration (Points, Cashback, Gift, etc.).</li>
+        <li>Wallet Transaction Logs with filters and export.</li>
+        <li>Manual Wallet Adjustment:
+          <ul>
+            <li>Credit/debit points or cashback with mandatory reason.</li>
+            <li>Audit trail for each manual adjustment.</li>
+          </ul>
+        </li>
+        <li>Expiry Rules &amp; Scheduler:</li>
+        <ul>
+          <li>Global expiry settings per wallet.</li>
+          <li>Simulation of upcoming expiries.</li>
+        </ul>
+      </ul>
+
+      <h3>4.4 Tiers</h3>
+      <ul>
+        <li>Tier Definition (name, color, badge icon, sort order).</li>
+        <li>Progression Rules:
+          <ul>
+            <li>Spend thresholds, number of transactions, or points.</li>
+            <li>Tracking period (rolling 12 months, calendar year, lifetime).</li>
+          </ul>
+        </li>
+        <li>Tier Benefits configuration:
+          <ul>
+            <li>Points multiplier.</li>
+            <li>Exclusive campaigns eligibility.</li>
+            <li>Free shipping, special discounts, priority customer service.</li>
+          </ul>
+        </li>
+        <li>Tier Downgrade rules.</li>
+        <li>Tier History (timeline of tier changes per member).</li>
+      </ul>
+
+      <h3>4.5 Campaigns</h3>
+      <ul>
+        <li><strong>Campaign List</strong> (status, period, KPIs).</li>
+        <li><strong>Create / Edit Campaign</strong> including:
+          <ul>
+            <li>Basic details: name, description, validity dates.</li>
+            <li>Target segment: tiers, demographics, RFM score, custom segments.</li>
+            <li>Conditions (IF section): event type, order value, categories, channels.</li>
+            <li>Rewards (THEN section): points, cashback, vouchers, free gifts.</li>
+            <li>Limits: per member, per day, global cap.</li>
+          </ul>
+        </li>
+        <li><strong>Rule Builder</strong> UI:
+          <ul>
+            <li>Nested conditions with AND/OR logic.</li>
+            <li>Preview / test mode with sample transaction.</li>
+          </ul>
+        </li>
+        <li><strong>Campaign Reports</strong>:
+          <ul>
+            <li>Number of participants, points issued, revenue uplift.</li>
+            <li>Conversion rates per channel.</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>4.6 Rewards</h3>
+      <ul>
+        <li>Reward Catalog management:
+          <ul>
+            <li>Physical products, digital vouchers, coupons, experiences.</li>
+            <li>Fields: name, image, description, category, stock, cost in points/cashback.</li>
+          </ul>
+        </li>
+        <li>Restrictions:
+          <ul>
+            <li>Min/max tier, channel, store.</li>
+            <li>Per-member redemption limits.</li>
+          </ul>
+        </li>
+        <li>Redemption history and stock tracking.</li>
+      </ul>
+
+      <h3>4.7 Achievements &amp; Gamification</h3>
+      <ul>
+        <li>Badge configuration (name, icon, criteria).</li>
+        <li>Missions/Challenges (e.g., “place 5 orders in a month”).</li>
+        <li>Streaks (consecutive days/weeks of activity).</li>
+        <li>Rewards for completing achievements (points, badges, vouchers).</li>
+        <li>Achievement logs and member-level views.</li>
+      </ul>
+
+      <h3>4.8 Coupons</h3>
+      <ul>
+        <li>Coupon generation:
+          <ul>
+            <li>Static codes (e.g., WELCOME10).</li>
+            <li>Dynamic/generated codes per member.</li>
+          </ul>
+        </li>
+        <li>Redemption rules:
+          <ul>
+            <li>Discount type: fixed amount, percentage, free item.</li>
+            <li>Minimum basket size, product/category restrictions.</li>
+            <li>Validity window, max uses per member, global caps.</li>
+          </ul>
+        </li>
+        <li>Redemption history and performance metrics.</li>
+      </ul>
+
+      <h3>4.9 Communication</h3>
+      <ul>
+        <li>Channels: Email, SMS, Push notifications, optional WhatsApp.</li>
+        <li>Template management with personalization variables (name, tier, points, etc.).</li>
+        <li>Triggers:
+          <ul>
+            <li>Welcome, birthday, near-expiry, tier upgrade, campaign invite, post-purchase.</li>
+          </ul>
+        </li>
+        <li>Communication logs per member and per campaign.</li>
+      </ul>
+
+      <h3>4.10 Reports &amp; Analytics</h3>
+      <ul>
+        <li>Member lifecycle analysis (new vs. active vs. dormant).</li>
+        <li>Tier migration reports.</li>
+        <li>Points breakage (expired vs. redeemed).</li>
+        <li>Campaign ROI and attribution.</li>
+        <li>Fraud and anomaly detection report.</li>
+      </ul>
+
+      <h3>4.11 System Settings</h3>
+      <ul>
+        <li>Attribute management (custom fields on members, transactions, events).</li>
+        <li>Store/branch/channel setup.</li>
+        <li>Taxonomy: categories, brands, tags.</li>
+        <li>Scheduled jobs:
+          <ul>
+            <li>Points expiry, tier evaluation, campaign housekeeping.</li>
+          </ul>
+        </li>
+        <li>Integration keys for POS, eCommerce, ERP, CRM.</li>
+        <li>Role-based access control (RBAC) and permissions.</li>
+      </ul>
+    </section>
+
+    <section id="member-portal">
+      <h2>5. Member Portal – Menu Structure</h2>
+
+      <h3>5.1 Home</h3>
+      <ul>
+        <li>Current tier badge and name.</li>
+        <li>Progress bar to next tier (e.g., “₹12,000 more to reach Gold”).</li>
+        <li>Points wallet balance and cashback balance.</li>
+        <li>Top campaigns and recommended rewards.</li>
+      </ul>
+
+      <h3>5.2 Rewards</h3>
+      <ul>
+        <li>Reward catalog with filters (category, cost, channel).</li>
+        <li>Reward details page:
+          <ul>
+            <li>Description, image, cost, availability, restrictions.</li>
+            <li><em>Redeem</em> button, confirmation step, and success screen.</li>
+          </ul>
+        </li>
+        <li>My redemptions history.</li>
+      </ul>
+
+      <h3>5.3 My Wallet</h3>
+      <ul>
+        <li>Overview of all wallets: Points, Cashback, Gift/Promo.</li>
+        <li>Transaction history for each wallet (earn, redeem, expire, adjust).</li>
+        <li>Upcoming expiries with dates.</li>
+      </ul>
+
+      <h3>5.4 My Tiers</h3>
+      <ul>
+        <li>Current tier and benefits list.</li>
+        <li>Comparison with higher tiers (what extra you get).</li>
+        <li>Progress metrics (spend, points, orders).</li>
+      </ul>
+
+      <h3>5.5 Achievements</h3>
+      <ul>
+        <li>Badges earned with dates and descriptions.</li>
+        <li>Active missions/challenges and rewards for completion.</li>
+        <li>Streaks view and countdowns.</li>
+      </ul>
+
+      <h3>5.6 Timeline View</h3>
+      <p>
+        A chronological activity feed similar to Open Loyalty’s timeline, showing key events in the member’s journey.
+      </p>
+      <ul>
+        <li>Points earned, redeemed, expired.</li>
+        <li>Tier upgrades/downgrades.</li>
+        <li>Rewards redeemed, vouchers issued/used.</li>
+        <li>Campaign participation and achievement unlocks.</li>
+      </ul>
+
+      <h3>5.7 Profile &amp; Settings</h3>
+      <ul>
+        <li>Personal data (name, contact, DOB, etc.).</li>
+        <li>Communication preferences and consent.</li>
+        <li>Linked accounts (social login, mobile, partner IDs).</li>
+        <li>Data export / delete account (where required by regulation).</li>
+      </ul>
+    </section>
+
+    <section id="ui-design">
+      <h2>6. UI Design – Key Screen Layouts (Wireframes)</h2>
+
+      <h3>6.1 Admin – Member Profile Page Layout</h3>
+      <pre>
+-----------------------------------------------------
+| Member Name &amp; Loyalty ID       [TIER BADGE]      |
+| Contact | Join Date | Last Activity              |
+-----------------------------------------------------
+| Tabs: Profile | Wallets | Transactions | Timeline |
+-----------------------------------------------------
+| Timeline (most recent first):                    |
+| [11 Nov] Points Earned +10 (Order #1002)        |
+| [10 Nov] Tier Upgrade → SILVER                  |
+| [09 Nov] Redeemed 200 pts for "Gift Voucher"    |
+-----------------------------------------------------
+| Side Panel: Campaigns | Vouchers | Notes        |
+-----------------------------------------------------
+      </pre>
+
+      <h3>6.2 Member – Rewards Page</h3>
+      <pre>
+[ Search bar                                     ]
+Categories: All | Fashion | Electronics | Grocery
+------------------------------------------------
+[ Reward Card ]
+Image | Title
+Cost: 500 pts       [ REDEEM ]
+------------------------------------------------
+[ Reward Card ]
+Image | Title
+Cost: 1200 pts      [ REDEEM ]
+------------------------------------------------
+      </pre>
+
+      <h3>6.3 Member – Home Dashboard</h3>
+      <pre>
+------------------------------------------------
+|  Hello, &lt;Member Name&gt;                        |
+|  Tier: GOLD  [Badge]                          |
+|  Progress to PLATINUM: ████████░░  75%       |
+------------------------------------------------
+|  Points Balance:  3,250 pts                  |
+|  Cashback Balance: ₹540                      |
+------------------------------------------------
+|  Recommended for you                         |
+|  - Double Points Weekend (JOIN)              |
+|  - Redeem 2000 pts for ₹200 voucher          |
+------------------------------------------------
+      </pre>
+    </section>
+
+    <section id="technical">
+      <h2>7. Technical &amp; Integration Requirements</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Interface</th>
+            <th>Requirement</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>eCommerce</td>
+            <td>REST/GraphQL hooks at checkout to calculate and apply earn/redeem, and to display real-time wallet balances.</td>
+          </tr>
+          <tr>
+            <td>POS</td>
+            <td>APIs to identify member, earn/redeem at POS, and queue transactions for sync when offline.</td>
+          </tr>
+          <tr>
+            <td>ERP/CRM</td>
+            <td>Order, return, and customer sync; ability to update attributes and segments.</td>
+          </tr>
+          <tr>
+            <td>Mobile Push</td>
+            <td>Integration with push providers (e.g., Firebase/APNs) for real-time notifications.</td>
+          </tr>
+          <tr>
+            <td>Authentication</td>
+            <td>OAuth2 / JWT-based SSO; optional social login (Google, Facebook, Apple ID).</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Public APIs should be versioned, secured with API keys and member auth tokens, and documented via
+        OpenAPI/Swagger.
+      </p>
+    </section>
+
+    <section id="data-model">
+      <h2>8. Data Model (High Level)</h2>
+      <p>The following are key logical tables/entities (technology-agnostic):</p>
+      <ul>
+        <li><strong>Member</strong> (id, external_ids, name, contact, attributes, tier_id, join_date, status)</li>
+        <li><strong>Transaction</strong> (id, member_id, type, order_id, channel, value, currency, date)</li>
+        <li><strong>Wallet</strong> (id, member_id, type, balance, currency)</li>
+        <li><strong>Wallet_Log</strong> (id, wallet_id, delta, reason, transaction_id, expiry_date, created_at)</li>
+        <li><strong>Tier</strong> (id, code, name, thresholds, multiplier, benefits)</li>
+        <li><strong>Tier_History</strong> (id, member_id, tier_id, from_date, to_date, reason)</li>
+        <li><strong>Reward</strong> (id, name, type, stock, cost_points, cost_cashback, restrictions)</li>
+        <li><strong>Coupon</strong> (id, code, type, discount, rules, validity, status)</li>
+        <li><strong>Campaign</strong> (id, name, rules_json, start_date, end_date, status)</li>
+        <li><strong>Campaign_Log</strong> (id, campaign_id, member_id, event_id, reward_value, created_at)</li>
+        <li><strong>Achievement</strong> (id, name, criteria_json, reward_json)</li>
+        <li><strong>Achievement_Log</strong> (id, member_id, achievement_id, unlocked_at)</li>
+        <li><strong>Timeline_Event</strong> (id, member_id, event_type, payload_json, created_at, source_channel)</li>
+      </ul>
+      <p>
+        <strong>Timeline_Event</strong> is the central log for the member’s journey, aggregating different event types
+        into a single chronological feed, similar to Open Loyalty’s Timeline feature.
+      </p>
+    </section>
+
+    <section id="security">
+      <h2>9. Security &amp; Compliance</h2>
+      <ul>
+        <li>Role-based access control (RBAC) for admin portal.</li>
+        <li>Encryption for sensitive fields (e.g., phone, email) at rest and in transit (TLS).</li>
+        <li>Comprehensive audit logs for all admin actions and manual adjustments.</li>
+        <li>Data retention policies and anonymization/deletion workflows.</li>
+        <li>Consent management and communication preference storage.</li>
+      </ul>
+    </section>
+
+    <section id="roadmap">
+      <h2>10. Roadmap Extensions (Optional)</h2>
+      <ul>
+        <li>Family / household accounts and shared wallets.</li>
+        <li>Multi-brand / coalition loyalty with partner integrations.</li>
+        <li>Referral program with tracking and rewards.</li>
+        <li>Geofencing-based offers and in-store triggers.</li>
+        <li>AI-based reward recommendations and churn prediction.</li>
+        <li>Conversational chatbot interface over WhatsApp or in-app chat.</li>
+      </ul>
+      <p>
+        This document can be used directly as a baseline specification for product, design, and engineering teams.
+        You can further extend it with technology-specific details (e.g., Next.js front-end, .NET/Node backend, database schema).
+      </p>
+    </section>
+  </main>
+</body>
+</html>

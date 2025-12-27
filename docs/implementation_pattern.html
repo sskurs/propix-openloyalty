@@ -1,0 +1,1011 @@
+<!DOCTYPE html><html><head><meta charset=" "UTF-8\u003e<title>implementation_pattern</title><style>body{font-family:Arial;max-width:1200px;margin:20px auto;padding:20px;background:#f5f5f5}h1{color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:10px}h2{color:#34495e;margin-top:30px;border-bottom:2px solid #ecf0f1}code{background:#f8f9fa;padding:2px 6px;border-radius:3px;color:#e74c3c}pre{background:#2d2d2d;color:#f8f8f2;padding:20px;border-radius:5px;overflow-x:auto}table{border-collapse:collapse;width:100%%;margin:20px 0}th,td{border:1px solid #ddd;padding:12px}th{background:#3498db;color:white}</style></head><body><h1>Feature Implementation Pattern - Open Loyalty Program</h1>
+<h2>Overview</h2>
+<p>This document provides a <strong>reusable template</strong> for implementing features across all modules in the Open Loyalty Program. Follow this proven pattern used successfully for the Campaign module.</p>
+<hr />
+<h2>The 5-Phase Pattern</h2>
+<pre><code class="language-mermaid">graph LR
+    A[Phase 1: Database] --&gt; B[Phase 2: Worker Engine]
+    B --&gt; C[Phase 3: Customer API]
+    C --&gt; D[Phase 4: Admin API]
+    D --&gt; E[Phase 5: UI Components]
+
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#e8f5e9
+    style D fill:#f3e5f5
+    style E fill:#fce4ec
+</code></pre>
+<hr />
+<h2>Phase 1: Database Schema</h2>
+<h3>Step 1.1: Create Migration File</h3>
+<p><strong>Location</strong>: <code>database/migrations/XXX_feature_name.sql</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-sql">-- Feature: [Feature Name]
+-- Description: [What this feature does]
+
+-- Table 1: Main entity
+CREATE TABLE IF NOT EXISTS [table_name] (
+    id BIGSERIAL PRIMARY KEY,
+    [entity]_id TEXT NOT NULL,
+    [field1] TEXT,
+    [field2] DECIMAL(18,2),
+    [field3] JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT unique_[constraint_name] UNIQUE([column])
+);
+
+CREATE INDEX IF NOT EXISTS idx_[table]_[column] ON [table_name]([column]);
+
+-- Table 2: Transaction/History table
+CREATE TABLE IF NOT EXISTS [table_name]_history (
+    id BIGSERIAL PRIMARY KEY,
+    [entity]_id TEXT NOT NULL,
+    action_type TEXT NOT NULL, -- 'CREATED', 'UPDATED', 'DELETED'
+    previous_value JSONB,
+    new_value JSONB,
+    changed_by TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_[table]_history_entity ON [table_name]_history([entity]_id);
+CREATE INDEX IF NOT EXISTS idx_[table]_history_created ON [table_name]_history(created_at DESC);
+
+-- Insert sample/default data (optional)
+INSERT INTO [table_name] ([columns])
+VALUES ([values])
+ON CONFLICT ([unique_column]) DO NOTHING;
+</code></pre>
+<p><strong>Example (Tiers)</strong>:</p>
+<pre><code class="language-sql">-- Feature: Member Tiers
+-- Description: Manage customer tier levels and benefits
+
+CREATE TABLE IF NOT EXISTS member_tiers (
+    id BIGSERIAL PRIMARY KEY,
+    tier_code TEXT NOT NULL,
+    tier_name TEXT NOT NULL,
+    min_points DECIMAL(18,2) NOT NULL DEFAULT 0,
+    max_points DECIMAL(18,2),
+    benefits JSONB,
+    color_code TEXT,
+    icon_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT unique_tier_code UNIQUE(tier_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tiers_points ON member_tiers(min_points, max_points);
+
+-- Insert default tiers
+INSERT INTO member_tiers (tier_code, tier_name, min_points, max_points, created_at)
+VALUES 
+    ('BRONZE', 'Bronze', 0, 999, NOW()),
+    ('SILVER', 'Silver', 1000, 4999, NOW()),
+    ('GOLD', 'Gold', 5000, 9999, NOW()),
+    ('PLATINUM', 'Platinum', 10000, NULL, NOW())
+ON CONFLICT (tier_code) DO NOTHING;
+</code></pre>
+<h3>Step 1.2: Apply Migration</h3>
+<pre><code class="language-bash"># Connect to database
+psql -U loyaltypro -d loyalty_worker
+
+# Run migration
+\i database/migrations/XXX_feature_name.sql
+
+# Verify tables created
+\dt [table_name]*
+</code></pre>
+<hr />
+<h2>Phase 2: Worker Engine (Backend Processing)</h2>
+<h3>Step 2.1: Create Entity Models</h3>
+<p><strong>Location</strong>: <code>worker-engine/worker/Models/[EntityName].cs</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-csharp">using System;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Worker.Models
+{
+    [Table(&quot;[table_name]&quot;)]
+    public class [EntityName]
+    {
+        [Key]
+        [Column(&quot;id&quot;)]
+        public long Id { get; set; }
+
+        [Required]
+        [Column(&quot;[entity]_id&quot;)]
+        public string EntityId { get; set; } = &quot;&quot;;
+
+        [Column(&quot;[field1]&quot;)]
+        public string? Field1 { get; set; }
+
+        [Column(&quot;[field2]&quot;)]
+        public decimal Field2 { get; set; }
+
+        [Column(&quot;[field3]&quot;, TypeName = &quot;jsonb&quot;)]
+        public string? Field3 { get; set; }
+
+        [Column(&quot;created_at&quot;)]
+        public DateTime CreatedAt { get; set; }
+
+        [Column(&quot;updated_at&quot;)]
+        public DateTime? UpdatedAt { get; set; }
+    }
+}
+</code></pre>
+<h3>Step 2.2: Update DbContext</h3>
+<p><strong>Location</strong>: <code>worker-engine/worker/Data/WorkerDbContext.cs</code></p>
+<p><strong>Add</strong>:</p>
+<pre><code class="language-csharp">// [Feature Name] Entities
+public DbSet&lt;Worker.Models.[EntityName]&gt; [EntityName]s =&gt; Set&lt;Worker.Models.[EntityName]&gt;();
+public DbSet&lt;Worker.Models.[EntityName]History&gt; [EntityName]History =&gt; Set&lt;Worker.Models.[EntityName]History&gt;();
+</code></pre>
+<p><strong>In OnModelCreating</strong>:</p>
+<pre><code class="language-csharp">// [Feature Name] Tables
+modelBuilder.Entity&lt;Worker.Models.[EntityName]&gt;().ToTable(&quot;[table_name]&quot;);
+modelBuilder.Entity&lt;Worker.Models.[EntityName]History&gt;().ToTable(&quot;[table_name]_history&quot;);
+</code></pre>
+<h3>Step 2.3: Create Message Handler (if needed)</h3>
+<p><strong>Location</strong>: <code>worker-engine/worker/Handlers/[Feature]Handler.cs</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-csharp">using System;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Confluent.Kafka;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Worker.Data;
+using Worker.Models;
+
+namespace Worker.Handlers
+{
+    public class [Feature]Handler
+    {
+        private readonly ILogger&lt;[Feature]Handler&gt; _logger;
+        private readonly WorkerDbContext _db;
+
+        public [Feature]Handler(ILogger&lt;[Feature]Handler&gt; logger, WorkerDbContext db)
+        {
+            _logger = logger;
+            _db = db;
+        }
+
+        public async Task HandleAsync(ConsumeResult&lt;string, string&gt; message, CancellationToken ct)
+        {
+            try
+            {
+                _logger.LogInformation(&quot;Processing [feature].[action] message&quot;);
+
+                // Parse message
+                var payload = JsonSerializer.Deserialize&lt;[Feature]Message&gt;(message.Value);
+                if (payload == null)
+                {
+                    _logger.LogWarning(&quot;Failed to deserialize message&quot;);
+                    return;
+                }
+
+                // Get or create entity
+                var entity = await _db.[EntityName]s
+                    .FirstOrDefaultAsync(e =&gt; e.EntityId == payload.EntityId, ct);
+
+                if (entity == null)
+                {
+                    entity = new [EntityName]
+                    {
+                        EntityId = payload.EntityId,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _db.[EntityName]s.Add(entity);
+                }
+
+                // Update entity
+                entity.Field1 = payload.Field1;
+                entity.Field2 = payload.Field2;
+                entity.UpdatedAt = DateTime.UtcNow;
+
+                // Create history record
+                var history = new [EntityName]History
+                {
+                    EntityId = payload.EntityId,
+                    ActionType = entity.Id == 0 ? &quot;CREATED&quot; : &quot;UPDATED&quot;,
+                    NewValue = JsonSerializer.Serialize(entity),
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.[EntityName]History.Add(history);
+
+                await _db.SaveChangesAsync(ct);
+
+                _logger.LogInformation(
+                    &quot;[Feature] {Action} for {EntityId}&quot;,
+                    history.ActionType, payload.EntityId
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, &quot;Error processing [feature] message&quot;);
+                throw;
+            }
+        }
+
+        private class [Feature]Message
+        {
+            public string EntityId { get; set; } = &quot;&quot;;
+            public string? Field1 { get; set; }
+            public decimal Field2 { get; set; }
+        }
+    }
+}
+</code></pre>
+<h3>Step 2.4: Register Handler</h3>
+<p><strong>Location</strong>: <code>worker-engine/worker/Program.cs</code></p>
+<p><strong>Add</strong>:</p>
+<pre><code class="language-csharp">services.AddScoped&lt;Worker.Handlers.[Feature]Handler&gt;();
+</code></pre>
+<h3>Step 2.5: Update Message Dispatcher</h3>
+<p><strong>Location</strong>: <code>worker-engine/worker/Infra/MessageDispatcher.cs</code></p>
+<p><strong>Add</strong>:</p>
+<pre><code class="language-csharp">if (type == &quot;[feature].[action]&quot;)
+{
+    using var s = _sp.CreateScope();
+    var h = s.ServiceProvider.GetRequiredService&lt;Worker.Handlers.[Feature]Handler&gt;();
+    await h.HandleAsync(msg, ct);
+    return true;
+}
+</code></pre>
+<hr />
+<h2>Phase 3: Customer API (Customer-Facing)</h2>
+<h3>Step 3.1: Create Entity Models</h3>
+<p><strong>Location</strong>: <code>customer-api/Models/[EntityName].cs</code></p>
+<p><strong>Template</strong>: Same as Phase 2.1 but in <code>OpenLoyalty.Customer.Api.Models</code> namespace</p>
+<h3>Step 3.2: Update DbContext</h3>
+<p><strong>Location</strong>: <code>customer-api/Data/LoyaltyDbContext.cs</code></p>
+<p><strong>Add</strong>:</p>
+<pre><code class="language-csharp">// [Feature Name] Entities
+public DbSet&lt;[EntityName]&gt; [EntityName]s { get; set; }
+public DbSet&lt;[EntityName]History&gt; [EntityName]History { get; set; }
+</code></pre>
+<p><strong>In OnModelCreating</strong>:</p>
+<pre><code class="language-csharp">// [Feature Name] Tables
+modelBuilder.Entity&lt;[EntityName]&gt;().ToTable(&quot;[table_name]&quot;);
+modelBuilder.Entity&lt;[EntityName]History&gt;().ToTable(&quot;[table_name]_history&quot;);
+</code></pre>
+<h3>Step 3.3: Create API Controller</h3>
+<p><strong>Location</strong>: <code>customer-api/Controllers/[Feature]Controller.cs</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-csharp">using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using OpenLoyalty.Customer.Api.Data;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace OpenLoyalty.Customer.Api.Controllers
+{
+    [ApiController]
+    [Route(&quot;api/[feature]&quot;)]
+    public class [Feature]Controller : ControllerBase
+    {
+        private readonly LoyaltyDbContext _db;
+        private readonly ILogger&lt;[Feature]Controller&gt; _logger;
+
+        public [Feature]Controller(LoyaltyDbContext db, ILogger&lt;[Feature]Controller&gt; logger)
+        {
+            _db = db;
+            _logger = logger;
+        }
+
+        /// &lt;summary&gt;
+        /// Get all [entities] for the authenticated user
+        /// &lt;/summary&gt;
+        [HttpGet(&quot;me&quot;)]
+        public async Task&lt;IActionResult&gt; GetMy[Entities]([FromQuery] string? userId)
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                return BadRequest(new { error = &quot;userId required&quot; });
+            }
+
+            var entities = await _db.[EntityName]s
+                .Where(e =&gt; e.UserId == userId)
+                .OrderByDescending(e =&gt; e.CreatedAt)
+                .Select(e =&gt; new
+                {
+                    id = e.Id,
+                    entityId = e.EntityId,
+                    field1 = e.Field1,
+                    field2 = e.Field2,
+                    createdAt = e.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new { entities, count = entities.Count });
+        }
+
+        /// &lt;summary&gt;
+        /// Get single [entity] by ID
+        /// &lt;/summary&gt;
+        [HttpGet(&quot;{id}&quot;)]
+        public async Task&lt;IActionResult&gt; Get[Entity](string id)
+        {
+            var entity = await _db.[EntityName]s
+                .FirstOrDefaultAsync(e =&gt; e.EntityId == id);
+
+            if (entity == null)
+            {
+                return NotFound(new { error = &quot;[Entity] not found&quot; });
+            }
+
+            return Ok(new
+            {
+                id = entity.Id,
+                entityId = entity.EntityId,
+                field1 = entity.Field1,
+                field2 = entity.Field2,
+                createdAt = entity.CreatedAt,
+                updatedAt = entity.UpdatedAt
+            });
+        }
+
+        /// &lt;summary&gt;
+        /// Get history for [entity]
+        /// &lt;/summary&gt;
+        [HttpGet(&quot;{id}/history&quot;)]
+        public async Task&lt;IActionResult&gt; Get[Entity]History(
+            string id,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            if (page &lt; 1) page = 1;
+            if (pageSize &lt; 1 || pageSize &gt; 100) pageSize = 20;
+
+            var query = _db.[EntityName]History
+                .Where(h =&gt; h.EntityId == id)
+                .OrderByDescending(h =&gt; h.CreatedAt);
+
+            var total = await query.CountAsync();
+
+            var history = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(h =&gt; new
+                {
+                    id = h.Id,
+                    actionType = h.ActionType,
+                    previousValue = h.PreviousValue,
+                    newValue = h.NewValue,
+                    changedBy = h.ChangedBy,
+                    createdAt = h.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                history,
+                pagination = new
+                {
+                    page,
+                    pageSize,
+                    total,
+                    totalPages = (int)Math.Ceiling(total / (double)pageSize)
+                }
+            });
+        }
+    }
+}
+</code></pre>
+<h3>Step 3.4: Create HTTP Test File</h3>
+<p><strong>Location</strong>: <code>customer-api/Tests/[Feature]Api.http</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-http">### [Feature] API Tests
+
+@baseUrl = http://localhost:5002/api
+@userId = b87e67ca-5d0f-47fe-91c2-68db92d14899
+@entityId = [sample-entity-id]
+
+### Get My [Entities]
+GET {{baseUrl}}/[feature]/me?userId={{userId}}
+
+### Get [Entity] by ID
+GET {{baseUrl}}/[feature]/{{entityId}}
+
+### Get [Entity] History
+GET {{baseUrl}}/[feature]/{{entityId}}/history?page=1&amp;pageSize=20
+</code></pre>
+<hr />
+<h2>Phase 4: Admin API (Admin-Facing)</h2>
+<h3>Step 4.1: Create Entity Models</h3>
+<p><strong>Location</strong>: <code>admin-api/OpenLoyalty.Api/Models/[EntityName].cs</code></p>
+<p><strong>Template</strong>: Same as Phase 2.1 but in <code>OpenLoyalty.Api.Models</code> namespace</p>
+<h3>Step 4.2: Update DbContext</h3>
+<p><strong>Location</strong>: <code>admin-api/OpenLoyalty.Api/Data/LoyaltyDbContext.cs</code></p>
+<p>Same pattern as Phase 3.2</p>
+<h3>Step 4.3: Create Analytics Controller</h3>
+<p><strong>Location</strong>: <code>admin-api/OpenLoyalty.Api/Controllers/[Feature]AnalyticsController.cs</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-csharp">using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using OpenLoyalty.Api.Data;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace OpenLoyalty.Api.Controllers
+{
+    [ApiController]
+    [Route(&quot;api/analytics/[feature]&quot;)]
+    public class [Feature]AnalyticsController : ControllerBase
+    {
+        private readonly LoyaltyDbContext _db;
+        private readonly ILogger&lt;[Feature]AnalyticsController&gt; _logger;
+
+        public [Feature]AnalyticsController(LoyaltyDbContext db, ILogger&lt;[Feature]AnalyticsController&gt; logger)
+        {
+            _db = db;
+            _logger = logger;
+        }
+
+        /// &lt;summary&gt;
+        /// Get all [entities] with filters
+        /// &lt;/summary&gt;
+        [HttpGet]
+        public async Task&lt;IActionResult&gt; GetAll[Entities](
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50,
+            [FromQuery] string? userId = null,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            var query = _db.[EntityName]s.AsQueryable();
+
+            // Apply filters
+            if (!string.IsNullOrEmpty(userId))
+                query = query.Where(e =&gt; e.UserId == userId);
+
+            if (startDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &gt;= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &lt;= endDate.Value);
+
+            var total = await query.CountAsync();
+
+            var entities = await query
+                .OrderByDescending(e =&gt; e.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(e =&gt; new
+                {
+                    id = e.Id,
+                    entityId = e.EntityId,
+                    userId = e.UserId,
+                    field1 = e.Field1,
+                    field2 = e.Field2,
+                    createdAt = e.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                entities,
+                pagination = new
+                {
+                    page,
+                    pageSize,
+                    total,
+                    totalPages = (int)Math.Ceiling(total / (double)pageSize)
+                }
+            });
+        }
+
+        /// &lt;summary&gt;
+        /// Get [feature] statistics
+        /// &lt;/summary&gt;
+        [HttpGet(&quot;stats&quot;)]
+        public async Task&lt;IActionResult&gt; GetStats(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            var query = _db.[EntityName]s.AsQueryable();
+
+            if (startDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &gt;= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &lt;= endDate.Value);
+
+            var stats = new
+            {
+                total = await query.CountAsync(),
+                uniqueUsers = await query.Select(e =&gt; e.UserId).Distinct().CountAsync(),
+                totalField2 = await query.SumAsync(e =&gt; e.Field2),
+                averageField2 = await query.AverageAsync(e =&gt; e.Field2)
+            };
+
+            return Ok(stats);
+        }
+
+        /// &lt;summary&gt;
+        /// Get daily breakdown
+        /// &lt;/summary&gt;
+        [HttpGet(&quot;daily&quot;)]
+        public async Task&lt;IActionResult&gt; GetDailyStats(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            var query = _db.[EntityName]s.AsQueryable();
+
+            if (startDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &gt;= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(e =&gt; e.CreatedAt &lt;= endDate.Value);
+
+            var dailyStats = await query
+                .GroupBy(e =&gt; e.CreatedAt.Date)
+                .Select(g =&gt; new
+                {
+                    date = g.Key,
+                    count = g.Count(),
+                    uniqueUsers = g.Select(e =&gt; e.UserId).Distinct().Count(),
+                    totalField2 = g.Sum(e =&gt; e.Field2)
+                })
+                .OrderBy(s =&gt; s.date)
+                .ToListAsync();
+
+            return Ok(new { dailyStats });
+        }
+    }
+}
+</code></pre>
+<hr />
+<h2>Phase 5: UI Components</h2>
+<h3>Step 5.1: Customer Web Components</h3>
+<p><strong>Location</strong>: <code>customer-web/src/components/[feature]/</code></p>
+<h4>Component 1: List View</h4>
+<p><strong>File</strong>: <code>[Feature]List.tsx</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { Table } from '@/components/ui/table';
+
+export function [Feature]List() {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const userId = 'b87e67ca-5d0f-47fe-91c2-68db92d14899'; // TODO: Get from auth
+
+  useEffect(() =&gt; {
+    fetch(`/api/[feature]/me?userId=${userId}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res =&gt; res.json())
+      .then(data =&gt; {
+        setData(data.entities);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return &lt;div&gt;Loading...&lt;/div&gt;;
+
+  return (
+    &lt;Card className=&quot;p-6&quot;&gt;
+      &lt;h2 className=&quot;text-2xl font-bold mb-4&quot;&gt;My [Entities]&lt;/h2&gt;
+      &lt;Table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th&gt;ID&lt;/th&gt;
+            &lt;th&gt;Field 1&lt;/th&gt;
+            &lt;th&gt;Field 2&lt;/th&gt;
+            &lt;th&gt;Created&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {data.map(item =&gt; (
+            &lt;tr key={item.id}&gt;
+              &lt;td&gt;{item.entityId}&lt;/td&gt;
+              &lt;td&gt;{item.field1}&lt;/td&gt;
+              &lt;td&gt;{item.field2}&lt;/td&gt;
+              &lt;td&gt;{new Date(item.createdAt).toLocaleDateString()}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/Table&gt;
+    &lt;/Card&gt;
+  );
+}
+</code></pre>
+<h4>Component 2: Detail View</h4>
+<p><strong>File</strong>: <code>[Feature]Detail.tsx</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Card } from '@/components/ui/card';
+
+export function [Feature]Detail() {
+  const { id } = useParams();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() =&gt; {
+    fetch(`/api/[feature]/${id}`)
+      .then(res =&gt; res.json())
+      .then(data =&gt; {
+        setData(data);
+        setLoading(false);
+      });
+  }, [id]);
+
+  if (loading) return &lt;div&gt;Loading...&lt;/div&gt;;
+  if (!data) return &lt;div&gt;Not found&lt;/div&gt;;
+
+  return (
+    &lt;div className=&quot;space-y-6&quot;&gt;
+      &lt;Card className=&quot;p-6&quot;&gt;
+        &lt;h2 className=&quot;text-2xl font-bold mb-4&quot;&gt;[Entity] Details&lt;/h2&gt;
+        &lt;dl className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+          &lt;div&gt;
+            &lt;dt className=&quot;text-sm text-gray-600&quot;&gt;ID&lt;/dt&gt;
+            &lt;dd className=&quot;font-semibold&quot;&gt;{data.entityId}&lt;/dd&gt;
+          &lt;/div&gt;
+          &lt;div&gt;
+            &lt;dt className=&quot;text-sm text-gray-600&quot;&gt;Field 1&lt;/dt&gt;
+            &lt;dd className=&quot;font-semibold&quot;&gt;{data.field1}&lt;/dd&gt;
+          &lt;/div&gt;
+          &lt;div&gt;
+            &lt;dt className=&quot;text-sm text-gray-600&quot;&gt;Field 2&lt;/dt&gt;
+            &lt;dd className=&quot;font-semibold&quot;&gt;{data.field2}&lt;/dd&gt;
+          &lt;/div&gt;
+          &lt;div&gt;
+            &lt;dt className=&quot;text-sm text-gray-600&quot;&gt;Created&lt;/dt&gt;
+            &lt;dd className=&quot;font-semibold&quot;&gt;{new Date(data.createdAt).toLocaleString()}&lt;/dd&gt;
+          &lt;/div&gt;
+        &lt;/dl&gt;
+      &lt;/Card&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<h3>Step 5.2: Admin Web Components</h3>
+<p><strong>Location</strong>: <code>admin-web/src/components/analytics/[Feature]Analytics.tsx</code></p>
+<p><strong>Template</strong>:</p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+
+export function [Feature]Analytics() {
+  const [stats, setStats] = useState(null);
+  const [dailyData, setDailyData] = useState([]);
+
+  useEffect(() =&gt; {
+    // Fetch stats
+    fetch('/api/analytics/[feature]/stats')
+      .then(res =&gt; res.json())
+      .then(data =&gt; setStats(data));
+
+    // Fetch daily data
+    fetch('/api/analytics/[feature]/daily')
+      .then(res =&gt; res.json())
+      .then(data =&gt; setDailyData(data.dailyStats));
+  }, []);
+
+  if (!stats) return &lt;div&gt;Loading...&lt;/div&gt;;
+
+  return (
+    &lt;div className=&quot;space-y-6&quot;&gt;
+      &lt;h1 className=&quot;text-2xl font-bold&quot;&gt;[Feature] Analytics&lt;/h1&gt;
+
+      {/* Stats Cards */}
+      &lt;div className=&quot;grid grid-cols-4 gap-4&quot;&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Total [Entities]&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{stats.total}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Unique Users&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{stats.uniqueUsers}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Total Field2&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{stats.totalField2.toLocaleString()}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Average Field2&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{Math.round(stats.averageField2)}&lt;/p&gt;
+        &lt;/Card&gt;
+      &lt;/div&gt;
+
+      {/* Daily Chart */}
+      &lt;Card className=&quot;p-6&quot;&gt;
+        &lt;h2 className=&quot;text-xl font-bold mb-4&quot;&gt;Daily Trend&lt;/h2&gt;
+        &lt;LineChart width={800} height={300} data={dailyData}&gt;
+          &lt;CartesianGrid strokeDasharray=&quot;3 3&quot; /&gt;
+          &lt;XAxis dataKey=&quot;date&quot; /&gt;
+          &lt;YAxis /&gt;
+          &lt;Tooltip /&gt;
+          &lt;Line type=&quot;monotone&quot; dataKey=&quot;count&quot; stroke=&quot;#8884d8&quot; name=&quot;Count&quot; /&gt;
+          &lt;Line type=&quot;monotone&quot; dataKey=&quot;uniqueUsers&quot; stroke=&quot;#82ca9d&quot; name=&quot;Users&quot; /&gt;
+        &lt;/LineChart&gt;
+      &lt;/Card&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<hr />
+<h2>Complete File Structure</h2>
+<pre><code>open-loyalty-program/
+├── database/
+│   └── migrations/
+│       └── XXX_feature_name.sql
+│
+├── worker-engine/worker/
+│   ├── Models/
+│   │   ├── [EntityName].cs
+│   │   └── [EntityName]History.cs
+│   ├── Handlers/
+│   │   └── [Feature]Handler.cs
+│   ├── Data/
+│   │   └── WorkerDbContext.cs (modified)
+│   ├── Infra/
+│   │   └── MessageDispatcher.cs (modified)
+│   └── Program.cs (modified)
+│
+├── customer-api/
+│   ├── Models/
+│   │   ├── [EntityName].cs
+│   │   └── [EntityName]History.cs
+│   ├── Controllers/
+│   │   └── [Feature]Controller.cs
+│   ├── Data/
+│   │   └── LoyaltyDbContext.cs (modified)
+│   └── Tests/
+│       └── [Feature]Api.http
+│
+├── admin-api/OpenLoyalty.Api/
+│   ├── Models/
+│   │   ├── [EntityName].cs
+│   │   └── [EntityName]History.cs
+│   ├── Controllers/
+│   │   └── [Feature]AnalyticsController.cs
+│   └── Data/
+│       └── LoyaltyDbContext.cs (modified)
+│
+├── customer-web/src/components/[feature]/
+│   ├── [Feature]List.tsx
+│   ├── [Feature]Detail.tsx
+│   └── [Feature]History.tsx
+│
+└── admin-web/src/components/analytics/
+    ├── [Feature]Analytics.tsx
+    └── [Feature]Table.tsx
+</code></pre>
+<hr />
+<h2>Implementation Checklist</h2>
+<p>Use this checklist for each new feature:</p>
+<h3>Phase 1: Database ✅</h3>
+<ul>
+<li>[ ] Create migration file</li>
+<li>[ ] Define main table</li>
+<li>[ ] Define history/transaction table</li>
+<li>[ ] Create indexes</li>
+<li>[ ] Add sample data (if needed)</li>
+<li>[ ] Apply migration</li>
+<li>[ ] Verify tables created</li>
+</ul>
+<h3>Phase 2: Worker Engine ✅</h3>
+<ul>
+<li>[ ] Create entity models</li>
+<li>[ ] Update WorkerDbContext</li>
+<li>[ ] Create message handler (if needed)</li>
+<li>[ ] Register handler in Program.cs</li>
+<li>[ ] Update MessageDispatcher</li>
+<li>[ ] Test message processing</li>
+</ul>
+<h3>Phase 3: Customer API ✅</h3>
+<ul>
+<li>[ ] Create entity models</li>
+<li>[ ] Update LoyaltyDbContext</li>
+<li>[ ] Create API controller</li>
+<li>[ ] Implement GET endpoints</li>
+<li>[ ] Implement POST endpoints (if needed)</li>
+<li>[ ] Create HTTP test file</li>
+<li>[ ] Test all endpoints</li>
+</ul>
+<h3>Phase 4: Admin API ✅</h3>
+<ul>
+<li>[ ] Create entity models</li>
+<li>[ ] Update LoyaltyDbContext</li>
+<li>[ ] Create analytics controller</li>
+<li>[ ] Implement stats endpoints</li>
+<li>[ ] Implement list/filter endpoints</li>
+<li>[ ] Test all endpoints</li>
+</ul>
+<h3>Phase 5: UI Components ✅</h3>
+<ul>
+<li>[ ] Create customer list component</li>
+<li>[ ] Create customer detail component</li>
+<li>[ ] Create admin analytics component</li>
+<li>[ ] Create admin table component</li>
+<li>[ ] Add routing</li>
+<li>[ ] Test UI flows</li>
+</ul>
+<hr />
+<h2>Example: Implementing "Segments" Feature</h2>
+<h3>1. Database Migration</h3>
+<pre><code class="language-sql">-- Feature: Customer Segments
+CREATE TABLE IF NOT EXISTS customer_segments (
+    id BIGSERIAL PRIMARY KEY,
+    segment_id TEXT NOT NULL,
+    segment_name TEXT NOT NULL,
+    segment_type TEXT NOT NULL, -- 'BEHAVIORAL', 'DEMOGRAPHIC', 'VALUE'
+    criteria JSONB NOT NULL,
+    member_count INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT unique_segment_id UNIQUE(segment_id)
+);
+
+CREATE TABLE IF NOT EXISTS segment_memberships (
+    id BIGSERIAL PRIMARY KEY,
+    segment_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    joined_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    left_at TIMESTAMP WITH TIME ZONE,
+    status TEXT DEFAULT 'ACTIVE',
+    CONSTRAINT unique_segment_member UNIQUE(segment_id, member_id)
+);
+</code></pre>
+<h3>2. Worker Entity Model</h3>
+<pre><code class="language-csharp">[Table(&quot;customer_segments&quot;)]
+public class CustomerSegment
+{
+    [Key]
+    [Column(&quot;id&quot;)]
+    public long Id { get; set; }
+
+    [Required]
+    [Column(&quot;segment_id&quot;)]
+    public string SegmentId { get; set; } = &quot;&quot;;
+
+    [Required]
+    [Column(&quot;segment_name&quot;)]
+    public string SegmentName { get; set; } = &quot;&quot;;
+
+    [Required]
+    [Column(&quot;segment_type&quot;)]
+    public string SegmentType { get; set; } = &quot;&quot;;
+
+    [Column(&quot;criteria&quot;, TypeName = &quot;jsonb&quot;)]
+    public string Criteria { get; set; } = &quot;{}&quot;;
+
+    [Column(&quot;member_count&quot;)]
+    public int MemberCount { get; set; }
+
+    [Column(&quot;created_at&quot;)]
+    public DateTime CreatedAt { get; set; }
+
+    [Column(&quot;updated_at&quot;)]
+    public DateTime? UpdatedAt { get; set; }
+}
+</code></pre>
+<h3>3. Customer API Endpoint</h3>
+<pre><code class="language-csharp">[HttpGet(&quot;me/segments&quot;)]
+public async Task&lt;IActionResult&gt; GetMySegments([FromQuery] string? userId)
+{
+    var segments = await _db.SegmentMemberships
+        .Where(sm =&gt; sm.MemberId == userId &amp;&amp; sm.Status == &quot;ACTIVE&quot;)
+        .Join(_db.CustomerSegments,
+            sm =&gt; sm.SegmentId,
+            cs =&gt; cs.SegmentId,
+            (sm, cs) =&gt; new
+            {
+                segmentId = cs.SegmentId,
+                segmentName = cs.SegmentName,
+                segmentType = cs.SegmentType,
+                joinedAt = sm.JoinedAt
+            })
+        .ToListAsync();
+
+    return Ok(new { segments, count = segments.Count });
+}
+</code></pre>
+<hr />
+<h2>Best Practices</h2>
+<h3>1. Naming Conventions</h3>
+<ul>
+<li><strong>Tables</strong>: <code>snake_case</code> (e.g., <code>member_points</code>, <code>campaign_executions</code>)</li>
+<li><strong>C# Classes</strong>: <code>PascalCase</code> (e.g., <code>MemberPoints</code>, <code>CampaignExecution</code>)</li>
+<li><strong>C# Properties</strong>: <code>PascalCase</code> (e.g., <code>PointsBalance</code>, <code>CreatedAt</code>)</li>
+<li><strong>API Routes</strong>: <code>kebab-case</code> (e.g., <code>/api/rewards/me/points</code>)</li>
+<li><strong>TypeScript</strong>: <code>camelCase</code> for variables, <code>PascalCase</code> for components</li>
+</ul>
+<h3>2. Database Design</h3>
+<ul>
+<li>Always include <code>created_at</code> timestamp</li>
+<li>Use <code>updated_at</code> for mutable entities</li>
+<li>Add indexes on foreign keys and frequently queried columns</li>
+<li>Use JSONB for flexible/dynamic data</li>
+<li>Create history tables for audit trails</li>
+</ul>
+<h3>3. API Design</h3>
+<ul>
+<li>Use RESTful conventions (GET, POST, PUT, DELETE)</li>
+<li>Include pagination for list endpoints</li>
+<li>Return consistent error responses</li>
+<li>Use query parameters for filters</li>
+<li>Include metadata (count, pagination info)</li>
+</ul>
+<h3>4. Error Handling</h3>
+<ul>
+<li>Log all errors with context</li>
+<li>Return appropriate HTTP status codes</li>
+<li>Provide helpful error messages</li>
+<li>Don't expose internal details to clients</li>
+</ul>
+<h3>5. Testing</h3>
+<ul>
+<li>Create HTTP test files for all endpoints</li>
+<li>Test happy path and error cases</li>
+<li>Verify database state after operations</li>
+<li>Test pagination and filtering</li>
+</ul>
+<hr />
+<h2>Quick Reference</h2>
+<h3>Common Commands</h3>
+<pre><code class="language-bash"># Apply database migration
+psql -U loyaltypro -d loyalty_worker -f database/migrations/XXX_feature.sql
+
+# Rebuild worker
+docker-compose build worker
+
+# Rebuild customer-api
+docker-compose build customer-api
+
+# Rebuild admin-api
+docker-compose build admin-api
+
+# Restart all services
+docker-compose up -d
+
+# View logs
+docker logs worker-engine --tail 100
+docker logs customer-api --tail 100
+docker logs admin-api --tail 100
+
+# Test API endpoint
+curl &quot;http://localhost:5002/api/[feature]/me?userId=[guid]&quot;
+</code></pre>
+<h3>Common Patterns</h3>
+<p><strong>Pagination</strong>:</p>
+<pre><code class="language-csharp">var query = _db.Entities.AsQueryable();
+var total = await query.CountAsync();
+var items = await query
+    .Skip((page - 1) * pageSize)
+    .Take(pageSize)
+    .ToListAsync();
+</code></pre>
+<p><strong>Filtering</strong>:</p>
+<pre><code class="language-csharp">if (!string.IsNullOrEmpty(filter))
+    query = query.Where(e =&gt; e.Field.Contains(filter));
+
+if (startDate.HasValue)
+    query = query.Where(e =&gt; e.CreatedAt &gt;= startDate.Value);
+</code></pre>
+<p><strong>JSONB Queries</strong>:</p>
+<pre><code class="language-sql">-- Query JSONB field
+SELECT * FROM table WHERE data-&gt;&gt;'key' = 'value';
+
+-- Update JSONB field
+UPDATE table SET data = jsonb_set(data, '{key}', '&quot;new_value&quot;');
+</code></pre>
+<hr />
+<h2>Summary</h2>
+<p>This pattern provides a <strong>complete, proven workflow</strong> for implementing features:</p>
+<ol>
+<li>✅ <strong>Database schema</strong> - Tables, indexes, constraints</li>
+<li>✅ <strong>Worker engine</strong> - Models, handlers, message processing</li>
+<li>✅ <strong>Customer API</strong> - Endpoints for customer views</li>
+<li>✅ <strong>Admin API</strong> - Analytics and management endpoints</li>
+<li>✅ <strong>UI components</strong> - React components for both portals</li>
+</ol>
+<p>Follow this pattern for <strong>Tiers, Segments, Rewards, Redemptions</strong>, and any other module! 🚀</p></body></html>

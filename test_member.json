@@ -1,0 +1,7 @@
+{
+    "FirstName": "Test",
+    "LastName": "User",
+    "Email": "test_sync@example.com",
+    "ExternalId": "CUST-1001",
+    "HasAgreedToTerms": true
+}

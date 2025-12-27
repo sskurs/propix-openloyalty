@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Campaign Module – Full Functional Specification</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.6;
+      margin: 40px;
+      color: #222;
+    }
+    h1, h2, h3 {
+      color: #1f3a5f;
+    }
+    h1 {
+      border-bottom: 3px solid #1f3a5f;
+      padding-bottom: 10px;
+    }
+    h2 {
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 6px;
+      margin-top: 40px;
+    }
+    h3 {
+      margin-top: 30px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f4f6f8;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.95em;
+    }
+    .note {
+      background: #eef5ff;
+      padding: 12px;
+      border-left: 4px solid #1f3a5f;
+      margin: 20px 0;
+    }
+    .warning {
+      background: #fff4e5;
+      padding: 12px;
+      border-left: 4px solid #f39c12;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Campaign Module – Full Functional Specification</h1>
+
+<p>
+This document defines the <strong>Campaign Module</strong> for a Loyalty Platform
+(OpenLoyalty-style architecture with Admin Web, Worker Engine, Kafka, and PostgreSQL).
+It covers <strong>UI behavior, data model, backend APIs, worker processing, events,
+and lifecycle</strong>.
+</p>
+
+<hr />
+
+<h2>1. Purpose of Campaign Module</h2>
+
+<p>
+A <strong>Campaign</strong> represents a time-bound marketing or loyalty initiative
+that:
+</p>
+
+<ul>
+  <li>Listens to member activity (transactions, events, behaviors)</li>
+  <li>Evaluates conditions (rules)</li>
+  <li>Grants rewards (points, coupons, badges, tiers)</li>
+</ul>
+
+<p>
+Campaigns are <strong>configuration-driven</strong>, created by Admin users,
+executed asynchronously by the <strong>Loyalty Worker</strong>.
+</p>
+
+---
+
+<h2>2. Campaign Lifecycle</h2>
+
+<h3>2.1 States</h3>
+
+<table>
+  <tr>
+    <th>Status</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td>DRAFT</td>
+    <td>Campaign created but not active</td>
+  </tr>
+  <tr>
+    <td>SCHEDULED</td>
+    <td>Will auto-activate at start date</td>
+  </tr>
+  <tr>
+    <td>ACTIVE</td>
+    <td>Eligible for rule evaluation</td>
+  </tr>
+  <tr>
+    <td>PAUSED</td>
+    <td>Temporarily stopped</td>
+  </tr>
+  <tr>
+    <td>COMPLETED</td>
+    <td>End date reached or exhausted</td>
+  </tr>
+  <tr>
+    <td>ARCHIVED</td>
+    <td>Read-only historical campaign</td>
+  </tr>
+</table>
+
+---
+
+<h2>3. Admin Web – Campaign Management</h2>
+
+<h3>3.1 Menu Structure</h3>
+
+<pre>
+Campaigns
+ ├─ All Campaigns
+ ├─ Create Campaign
+ ├─ Draft Campaigns
+ ├─ Active Campaigns
+ ├─ Completed Campaigns
+ └─ Archived Campaigns
+</pre>
+
+---
+
+<h3>3.2 Campaign Creation Flow</h3>
+
+<ol>
+  <li>Admin opens <strong>Create Campaign</strong></li>
+  <li>Fills campaign metadata</li>
+  <li>Defines conditions</li>
+  <li>Defines rewards</li>
+  <li>Saves as DRAFT or activates</li>
+</ol>
+
+---
+
+<h3>3.3 Campaign Fields (UI)</h3>
+
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td>Name</td>
+    <td>Text</td>
+    <td>Campaign name</td>
+  </tr>
+  <tr>
+    <td>Code</td>
+    <td>Text (unique)</td>
+    <td>Internal identifier</td>
+  </tr>
+  <tr>
+    <td>Description</td>
+    <td>Textarea</td>
+    <td>Admin description</td>
+  </tr>
+  <tr>
+    <td>Start Date</td>
+    <td>DateTime</td>
+    <td>Campaign activation time</td>
+  </tr>
+  <tr>
+    <td>End Date</td>
+    <td>DateTime</td>
+    <td>Campaign expiry time</td>
+  </tr>
+  <tr>
+    <td>Status</td>
+    <td>Enum</td>
+    <td>DRAFT / ACTIVE / PAUSED</td>
+  </tr>
+</table>
+
+---
+
+<h2>4. Campaign Conditions</h2>
+
+<p>
+Conditions define <strong>when a campaign is triggered</strong>.
+They are evaluated by the Worker against incoming events.
+</p>
+
+<h3>4.1 Condition Types</h3>
+
+<table>
+  <tr>
+    <th>Type</th>
+    <th>Example</th>
+  </tr>
+  <tr>
+    <td>Transaction Amount</td>
+    <td>Order value &gt; 1000</td>
+  </tr>
+  <tr>
+    <td>Transaction Count</td>
+    <td>5 purchases in 30 days</td>
+  </tr>
+  <tr>
+    <td>Event Based</td>
+    <td>signup.completed</td>
+  </tr>
+  <tr>
+    <td>Tier Condition</td>
+    <td>Member tier = GOLD</td>
+  </tr>
+  <tr>
+    <td>Segment Condition</td>
+    <td>Member belongs to segment X</td>
+  </tr>
+</table>
+
+<h3>4.2 Condition JSON (Stored)</h3>
+
+json
+{
+  "type": "transaction_amount",
+  "operator": ">=",
+  "value": 1000,
+  "currency": "INR"
+}
+<h2>5. Campaign Rewards</h2> <p> Rewards define <strong>what the member receives</strong> once conditions are met. </p> 
+
+<h3>5.2 Reward JSON</h3>
+<p>
+{
+  "type": "POINTS",
+  "amount": 500,
+  "reason": "Campaign Reward"
+}
+</p>
+<h2>6. Database Schema (Worker DB)</h2> <h3>6.1 campaigns</h3> 
+<table> <tr> <th>Column</th> <th>Type</th> <th>Notes</th> </tr> <tr> <td>id</td> <td>UUID</td> <td>Primary key</td>
+ </tr> <tr> <td>code</td> <td>VARCHAR</td> <td>Unique</td> </tr> <tr> <td>name</td> <td>VARCHAR</td> <td></td> </tr> <tr> 
+ <td>status</td> <td>VARCHAR</td> <td>DRAFT / ACTIVE / PAUSED</td> </tr> <tr> <td>start_date</td> <td>TIMESTAMP</td> <td></td> </tr> <tr> <td>end_date</td> <td>TIMESTAMP</td> <td></td> </tr> <tr> <td>created_at</td> <td>TIMESTAMP</td> <td></td> </tr> </table>
+<h3>6.2 campaign_conditions</h3> <table> <tr> <th>Column</th> <th>Type</th> <th>Notes</th> </tr> <tr> <td>id</td> <td>UUID</td> <td>PK</td> </tr> <tr> <td>campaign_id</td> <td>UUID</td> <td>FK → campaigns</td> </tr> <tr> <td>condition_json</td> <td>JSONB</td> <td>Rule definition</td> </tr> </table>
+<h3>6.3 campaign_rewards</h3> <table> <tr> <th>Column</th> <th>Type</th> <th>Notes</th> </tr> <tr> <td>id</td> <td>UUID</td> <td>PK</td> </tr> <tr> <td>campaign_id</td> <td>UUID</td> <td>FK → campaigns</td> </tr> <tr> <td>reward_json</td> <td>JSONB</td> <td>Reward definition</td> </tr> </table>
+<h2>7. Event & Worker Flow</h2> <h3>7.1 Campaign Creation</h3> <pre> Admin Web → Backend API → Save Campaign → Insert Outbox event: campaign.created → Outbox Publisher → Kafka topic: campaigns.created → Loyalty Worker → Load campaign into rule engine </pre>
+<h3>7.2 Campaign Execution</h3> <pre> Transaction/Event occurs → Kafka (transaction.created) → Loyalty Worker → Match active campaigns → Evaluate conditions → Apply reward → Persist result </pre>
+<h2>8. Kafka Events</h2> <table> <tr> <th>Event</th> <th>Description</th> </tr> <tr> <td>campaign.created</td> <td>New campaign published</td> </tr> <tr> <td>campaign.updated</td> <td>Campaign modified</td> </tr> <tr> <td>campaign.activated</td> <td>Campaign started</td> </tr> <tr> <td>campaign.completed</td> <td>Campaign ended</td> </tr> </table>
+<h2>9. Key Design Principles</h2> <ul> <li>Admin Web is <strong>configuration-only</strong></li> <li>Worker executes all business logic</li> <li>Kafka is the source of truth for events</li> <li>Campaign rules are JSON-driven</li> <li>Outbox guarantees delivery</li> </ul>
+<h2>10. Summary</h2> <p> The Campaign Module enables: </p> <ul> <li>Flexible marketing campaigns</li> <li>Event-driven execution</li> <li>Scalable rule processing</li> <li>Clear separation of Admin vs Worker responsibilities</li> </ul> <p><strong>This specification is sufficient to implement Campaigns end-to-end.</strong></p> </body> </html><h2>5. Campaign Rewards</h2> <p> Rewards define <strong>what the member receives</strong> once conditions are met. </p> <h3>5.1 Reward Types</h3> <table> <tr> <th>Type</th> <th>Description</th> </tr> <tr> <td>POINTS</td> <td>Add loyalty points</td> </tr> <tr> <td>COUPON</td> <td>Issue coupon code</td> </tr> <tr> <td>BADGE</td> <td>Award achievement</td> </tr> <tr> <td>TIER_UPGRADE</td> <td>Move member to new tier</td> </tr> </table>

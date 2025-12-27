@@ -1,0 +1,35 @@
+{
+  "dashboard": {
+    "kpi": {
+      "totalMembers": "Total Members",
+      "totalMembersChange": "+{{count}} this month",
+      "activeMembers": "Active Members",
+      "activeMembersChange": "{{percent}}% of total",
+      "newlyJoined": "Newly Joined (30d)",
+      "totalPointsIssued": "Total Points Issued",
+      "totalPointsRedeemed": "Total Points Redeemed",
+      "pointsBreakage": "Points Breakage (30d)"
+    },
+    "charts": {
+      "pointsIssuanceVsRedemption": "Points Issuance vs. Redemption (Weekly)",
+      "campaignPerformance": "Campaign Performance",
+      "tierDistribution": "Tier Distribution",
+      "placeholder": "[Chart component will be implemented here]"
+    },
+    "activity": {
+      "title": "Recent Activity",
+      "newMember": "{{name}} ({{email}}) just registered.",
+      "redemption": "{{name}} redeemed {{points}} points for a {{reward}}.",
+      "tierUpgrade": "{{name}} has reached the {{tier}} Tier.",
+      "suspicious": "High-frequency earning activity detected for member ID {{memberId}}.",
+      "newMemberSimple": "{{name}} has registered.",
+      "types": {
+          "newMember": "New Member",
+          "newMemberSimple": "New Member",
+          "redemption": "Redemption",
+          "tierUpgrade": "Tier Upgrade",
+          "suspicious": "Suspicious"
+      }
+    }
+  }
+}

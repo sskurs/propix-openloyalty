@@ -1,0 +1,890 @@
+<!DOCTYPE html><html><head><meta charset=" "UTF-8\u003e<title>implementation_plan</title><style>body{font-family:Arial;max-width:1200px;margin:20px auto;padding:20px;background:#f5f5f5}h1{color:#2c3e50;border-bottom:3px solid #3498db;padding-bottom:10px}h2{color:#34495e;margin-top:30px;border-bottom:2px solid #ecf0f1}code{background:#f8f9fa;padding:2px 6px;border-radius:3px;color:#e74c3c}pre{background:#2d2d2d;color:#f8f8f2;padding:20px;border-radius:5px;overflow-x:auto}table{border-collapse:collapse;width:100%%;margin:20px 0}th,td{border:1px solid #ddd;padding:12px}th{background:#3498db;color:white}</style></head><body><h1>Campaign Completion - Implementation Plan</h1>
+<h2>Overview</h2>
+<p>This plan focuses on <strong>view-only features</strong> to complete the campaign functionality, enabling customers to see their rewards and admins to monitor campaign performance. No CRUD operations for campaigns themselves.</p>
+<hr />
+<h2>Current State ✅</h2>
+<p><strong>What's Working</strong>:
+- ✅ Campaign creation and management (Admin)
+- ✅ Transaction processing (POS → Worker)
+- ✅ Rule evaluation (Worker Engine)
+- ✅ Reward application (Points strategy)
+- ✅ Outbox message publishing (Kafka)</p>
+<p><strong>What's Missing</strong>:
+- ❌ Customer view of rewards
+- ❌ Customer campaign enrollment
+- ❌ Points balance tracking
+- ❌ Admin transaction history view
+- ❌ Campaign analytics/reporting</p>
+<hr />
+<h2>Implementation Roadmap</h2>
+<h3>Phase 1: Core Data Infrastructure (Priority: HIGH)</h3>
+<p><strong>Goal</strong>: Establish data models and storage for rewards and points</p>
+<h3>Phase 2: Customer Reward Views (Priority: HIGH)</h3>
+<p><strong>Goal</strong>: Enable customers to see their points, rewards, and campaign participation</p>
+<h3>Phase 3: Admin Analytics &amp; Monitoring (Priority: MEDIUM)</h3>
+<p><strong>Goal</strong>: Enable admins to monitor campaign performance and transactions</p>
+<h3>Phase 4: Campaign Enrollment (Priority: LOW)</h3>
+<p><strong>Goal</strong>: Allow customers to opt-in to campaigns</p>
+<hr />
+<h2>Phase 1: Core Data Infrastructure</h2>
+<h3>1.1 Member Points Balance Table</h3>
+<p><strong>Database</strong>: <code>loyalty_db</code> (Admin API)</p>
+<p><strong>New Table</strong>: <code>member_points</code></p>
+<pre><code class="language-sql">CREATE TABLE member_points (
+    id BIGSERIAL PRIMARY KEY,
+    member_id TEXT NOT NULL,
+    points_balance DECIMAL(18,2) NOT NULL DEFAULT 0,
+    lifetime_points DECIMAL(18,2) NOT NULL DEFAULT 0,
+    points_earned_this_month DECIMAL(18,2) NOT NULL DEFAULT 0,
+    points_redeemed DECIMAL(18,2) NOT NULL DEFAULT 0,
+    tier TEXT DEFAULT 'BRONZE',
+    last_updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE(member_id)
+);
+
+CREATE INDEX idx_member_points_member_id ON member_points(member_id);
+</code></pre>
+<p><strong>Purpose</strong>: Track customer points balance in real-time</p>
+<hr />
+<h3>1.2 Points Transaction History Table</h3>
+<p><strong>New Table</strong>: <code>points_transactions</code></p>
+<pre><code class="language-sql">CREATE TABLE points_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    member_id TEXT NOT NULL,
+    transaction_type TEXT NOT NULL, -- 'EARNED', 'REDEEMED', 'EXPIRED', 'ADJUSTED'
+    points DECIMAL(18,2) NOT NULL,
+    balance_after DECIMAL(18,2) NOT NULL,
+    campaign_id TEXT,
+    order_id TEXT,
+    description TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX idx_points_tx_member_id ON points_transactions(member_id);
+CREATE INDEX idx_points_tx_created_at ON points_transactions(created_at DESC);
+</code></pre>
+<p><strong>Purpose</strong>: Audit trail of all points movements</p>
+<hr />
+<h3>1.3 Campaign Enrollments Table</h3>
+<p><strong>New Table</strong>: <code>campaign_enrollments</code></p>
+<pre><code class="language-sql">CREATE TABLE campaign_enrollments (
+    id BIGSERIAL PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    enrolled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'COMPLETED', 'CANCELLED'
+    progress JSONB, -- Track progress towards campaign goals
+    rewards_earned JSONB, -- List of rewards received
+    UNIQUE(campaign_id, member_id)
+);
+
+CREATE INDEX idx_enrollments_member_id ON campaign_enrollments(member_id);
+CREATE INDEX idx_enrollments_campaign_id ON campaign_enrollments(campaign_id);
+</code></pre>
+<p><strong>Purpose</strong>: Track which customers are enrolled in which campaigns</p>
+<hr />
+<h3>1.4 Worker-Engine: Points Balance Consumer</h3>
+<p><strong>New File</strong>: <code>worker-engine/worker/Handlers/PointsBalanceHandler.cs</code></p>
+<p><strong>Purpose</strong>: Consume <code>wallet.points.added</code> messages and update member points</p>
+<pre><code class="language-csharp">public class PointsBalanceHandler
+{
+    private readonly ILogger&lt;PointsBalanceHandler&gt; _logger;
+    private readonly WorkerDbContext _db;
+    private readonly IConfiguration _config;
+
+    public async Task HandleAsync(ConsumeResult&lt;string, string&gt; message, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize&lt;PointsAddedMessage&gt;(message.Value);
+
+        // Get or create member points record
+        var memberPoints = await _db.MemberPoints
+            .FirstOrDefaultAsync(m =&gt; m.MemberId == payload.UserId, ct);
+
+        if (memberPoints == null)
+        {
+            memberPoints = new MemberPoints
+            {
+                MemberId = payload.UserId,
+                PointsBalance = 0,
+                LifetimePoints = 0,
+                Tier = &quot;BRONZE&quot;,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.MemberPoints.Add(memberPoints);
+        }
+
+        // Update balance
+        memberPoints.PointsBalance += payload.Points;
+        memberPoints.LifetimePoints += payload.Points;
+        memberPoints.LastUpdatedAt = DateTime.UtcNow;
+
+        // Create transaction record
+        var pointsTx = new PointsTransaction
+        {
+            MemberId = payload.UserId,
+            TransactionType = &quot;EARNED&quot;,
+            Points = payload.Points,
+            BalanceAfter = memberPoints.PointsBalance,
+            CampaignId = payload.CampaignId,
+            OrderId = payload.TransactionId,
+            Description = $&quot;Points earned from campaign {payload.CampaignId}&quot;,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.PointsTransactions.Add(pointsTx);
+
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            &quot;Updated points for member {MemberId}: +{Points} = {Balance}&quot;,
+            payload.UserId, payload.Points, memberPoints.PointsBalance
+        );
+    }
+}
+</code></pre>
+<p><strong>Register in MessageDispatcher</strong>:</p>
+<pre><code class="language-csharp">if (messageType == &quot;wallet.points.added&quot;)
+{
+    var handler = _serviceProvider.GetRequiredService&lt;PointsBalanceHandler&gt;();
+    await handler.HandleAsync(message, cancellationToken);
+}
+</code></pre>
+<hr />
+<h2>Phase 2: Customer Reward Views</h2>
+<h3>2.1 Customer API Endpoints</h3>
+<p><strong>File</strong>: <code>customer-api/Controllers/RewardsController.cs</code></p>
+<h4>Endpoint 1: Get Points Balance</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;me/points&quot;)]
+public async Task&lt;IActionResult&gt; GetMyPoints()
+{
+    var userId = User.FindFirst(&quot;sub&quot;)?.Value; // From JWT
+
+    var memberPoints = await _db.MemberPoints
+        .FirstOrDefaultAsync(m =&gt; m.MemberId == userId);
+
+    if (memberPoints == null)
+    {
+        return Ok(new
+        {
+            pointsBalance = 0,
+            lifetimePoints = 0,
+            tier = &quot;BRONZE&quot;,
+            pointsEarnedThisMonth = 0
+        });
+    }
+
+    return Ok(new
+    {
+        pointsBalance = memberPoints.PointsBalance,
+        lifetimePoints = memberPoints.LifetimePoints,
+        tier = memberPoints.Tier,
+        pointsEarnedThisMonth = memberPoints.PointsEarnedThisMonth,
+        lastUpdated = memberPoints.LastUpdatedAt
+    });
+}
+</code></pre>
+<p><strong>Response Example</strong>:</p>
+<pre><code class="language-json">{
+  &quot;pointsBalance&quot;: 1500,
+  &quot;lifetimePoints&quot;: 5000,
+  &quot;tier&quot;: &quot;SILVER&quot;,
+  &quot;pointsEarnedThisMonth&quot;: 500,
+  &quot;lastUpdated&quot;: &quot;2025-12-27T01:00:00Z&quot;
+}
+</code></pre>
+<hr />
+<h4>Endpoint 2: Get Points History</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;me/points/history&quot;)]
+public async Task&lt;IActionResult&gt; GetPointsHistory(
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 20)
+{
+    var userId = User.FindFirst(&quot;sub&quot;)?.Value;
+
+    var query = _db.PointsTransactions
+        .Where(pt =&gt; pt.MemberId == userId)
+        .OrderByDescending(pt =&gt; pt.CreatedAt);
+
+    var total = await query.CountAsync();
+
+    var transactions = await query
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(pt =&gt; new
+        {
+            id = pt.Id,
+            type = pt.TransactionType,
+            points = pt.Points,
+            balanceAfter = pt.BalanceAfter,
+            description = pt.Description,
+            campaignId = pt.CampaignId,
+            orderId = pt.OrderId,
+            createdAt = pt.CreatedAt
+        })
+        .ToListAsync();
+
+    return Ok(new
+    {
+        transactions,
+        pagination = new
+        {
+            page,
+            pageSize,
+            total,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        }
+    });
+}
+</code></pre>
+<p><strong>Response Example</strong>:</p>
+<pre><code class="language-json">{
+  &quot;transactions&quot;: [
+    {
+      &quot;id&quot;: 123,
+      &quot;type&quot;: &quot;EARNED&quot;,
+      &quot;points&quot;: 100,
+      &quot;balanceAfter&quot;: 1500,
+      &quot;description&quot;: &quot;Points earned from campaign Welcome Bonus&quot;,
+      &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+      &quot;orderId&quot;: &quot;TXN-1766778102946&quot;,
+      &quot;createdAt&quot;: &quot;2025-12-27T01:15:00Z&quot;
+    }
+  ],
+  &quot;pagination&quot;: {
+    &quot;page&quot;: 1,
+    &quot;pageSize&quot;: 20,
+    &quot;total&quot;: 45,
+    &quot;totalPages&quot;: 3
+  }
+}
+</code></pre>
+<hr />
+<h4>Endpoint 3: Get My Campaign Rewards</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;me/campaigns/rewards&quot;)]
+public async Task&lt;IActionResult&gt; GetMyCampaignRewards()
+{
+    var userId = User.FindFirst(&quot;sub&quot;)?.Value;
+
+    // Get all campaign executions for this user
+    var rewards = await _db.CampaignExecutions
+        .Where(ce =&gt; ce.MemberId == userId)
+        .Join(_db.Campaigns,
+            ce =&gt; ce.CampaignId.ToString(),
+            c =&gt; c.Id,
+            (ce, c) =&gt; new
+            {
+                campaignId = c.Id,
+                campaignName = c.Name,
+                campaignCode = c.Code,
+                rewardType = ce.RewardType,
+                rewardDetails = ce.ExecutionResultJson,
+                transactionId = ce.TransactionId,
+                executedAt = ce.ExecutedAt
+            })
+        .OrderByDescending(r =&gt; r.executedAt)
+        .Take(50)
+        .ToListAsync();
+
+    return Ok(new { rewards });
+}
+</code></pre>
+<p><strong>Response Example</strong>:</p>
+<pre><code class="language-json">{
+  &quot;rewards&quot;: [
+    {
+      &quot;campaignId&quot;: &quot;d82dc3a7-6e51-4a75-9b24-2633fbfa87d6&quot;,
+      &quot;campaignName&quot;: &quot;Welcome Bonus&quot;,
+      &quot;campaignCode&quot;: &quot;WELCOME100&quot;,
+      &quot;rewardType&quot;: &quot;points&quot;,
+      &quot;rewardDetails&quot;: &quot;{\&quot;points\&quot;:100}&quot;,
+      &quot;transactionId&quot;: &quot;TXN-1766778102946&quot;,
+      &quot;executedAt&quot;: &quot;2025-12-27T01:15:00Z&quot;
+    }
+  ]
+}
+</code></pre>
+<hr />
+<h4>Endpoint 4: Get Available Campaigns</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;campaigns/available&quot;)]
+public async Task&lt;IActionResult&gt; GetAvailableCampaigns()
+{
+    var userId = User.FindFirst(&quot;sub&quot;)?.Value;
+
+    // Get active campaigns
+    var campaigns = await _db.Campaigns
+        .Where(c =&gt; c.Status == &quot;ACTIVE&quot;)
+        .Where(c =&gt; c.StartAt &lt;= DateTime.UtcNow &amp;&amp; c.EndAt &gt;= DateTime.UtcNow)
+        .Select(c =&gt; new
+        {
+            id = c.Id,
+            name = c.Name,
+            code = c.Code,
+            description = c.Description,
+            type = c.Type,
+            startAt = c.StartAt,
+            endAt = c.EndAt
+        })
+        .ToListAsync();
+
+    // Check enrollment status for each
+    var enrolledCampaignIds = await _db.CampaignEnrollments
+        .Where(e =&gt; e.MemberId == userId &amp;&amp; e.Status == &quot;ACTIVE&quot;)
+        .Select(e =&gt; e.CampaignId)
+        .ToListAsync();
+
+    var result = campaigns.Select(c =&gt; new
+    {
+        c.id,
+        c.name,
+        c.code,
+        c.description,
+        c.type,
+        c.startAt,
+        c.endAt,
+        isEnrolled = enrolledCampaignIds.Contains(c.id)
+    });
+
+    return Ok(new { campaigns = result });
+}
+</code></pre>
+<hr />
+<h3>2.2 Customer Web UI Components</h3>
+<h4>Component 1: Points Balance Widget</h4>
+<p><strong>File</strong>: <code>customer-web/src/components/rewards/PointsBalance.tsx</code></p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+
+export function PointsBalance() {
+  const [balance, setBalance] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() =&gt; {
+    fetch('/api/rewards/me/points', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res =&gt; res.json())
+      .then(data =&gt; {
+        setBalance(data);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return &lt;div&gt;Loading...&lt;/div&gt;;
+
+  return (
+    &lt;Card className=&quot;p-6&quot;&gt;
+      &lt;h2 className=&quot;text-2xl font-bold mb-4&quot;&gt;Your Points&lt;/h2&gt;
+      &lt;div className=&quot;grid grid-cols-2 gap-4&quot;&gt;
+        &lt;div&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Current Balance&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold text-blue-600&quot;&gt;
+            {balance.pointsBalance.toLocaleString()}
+          &lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Lifetime Points&lt;/p&gt;
+          &lt;p className=&quot;text-2xl font-semibold&quot;&gt;
+            {balance.lifetimePoints.toLocaleString()}
+          &lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Tier&lt;/p&gt;
+          &lt;p className=&quot;text-xl font-semibold text-purple-600&quot;&gt;
+            {balance.tier}
+          &lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;This Month&lt;/p&gt;
+          &lt;p className=&quot;text-xl font-semibold text-green-600&quot;&gt;
+            +{balance.pointsEarnedThisMonth}
+          &lt;/p&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/Card&gt;
+  );
+}
+</code></pre>
+<hr />
+<h4>Component 2: Points History Table</h4>
+<p><strong>File</strong>: <code>customer-web/src/components/rewards/PointsHistory.tsx</code></p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Table } from '@/components/ui/table';
+
+export function PointsHistory() {
+  const [history, setHistory] = useState([]);
+  const [page, setPage] = useState(1);
+
+  useEffect(() =&gt; {
+    fetch(`/api/rewards/me/points/history?page=${page}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res =&gt; res.json())
+      .then(data =&gt; setHistory(data));
+  }, [page]);
+
+  return (
+    &lt;div&gt;
+      &lt;h2 className=&quot;text-xl font-bold mb-4&quot;&gt;Points History&lt;/h2&gt;
+      &lt;Table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th&gt;Date&lt;/th&gt;
+            &lt;th&gt;Type&lt;/th&gt;
+            &lt;th&gt;Points&lt;/th&gt;
+            &lt;th&gt;Balance&lt;/th&gt;
+            &lt;th&gt;Description&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {history.transactions?.map(tx =&gt; (
+            &lt;tr key={tx.id}&gt;
+              &lt;td&gt;{new Date(tx.createdAt).toLocaleDateString()}&lt;/td&gt;
+              &lt;td&gt;
+                &lt;span className={`badge ${tx.type === 'EARNED' ? 'bg-green-100' : 'bg-red-100'}`}&gt;
+                  {tx.type}
+                &lt;/span&gt;
+              &lt;/td&gt;
+              &lt;td className={tx.type === 'EARNED' ? 'text-green-600' : 'text-red-600'}&gt;
+                {tx.type === 'EARNED' ? '+' : '-'}{tx.points}
+              &lt;/td&gt;
+              &lt;td&gt;{tx.balanceAfter}&lt;/td&gt;
+              &lt;td&gt;{tx.description}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/Table&gt;
+
+      {/* Pagination */}
+      &lt;div className=&quot;flex justify-center gap-2 mt-4&quot;&gt;
+        &lt;button onClick={() =&gt; setPage(p =&gt; Math.max(1, p - 1))}&gt;Previous&lt;/button&gt;
+        &lt;span&gt;Page {page} of {history.pagination?.totalPages}&lt;/span&gt;
+        &lt;button onClick={() =&gt; setPage(p =&gt; p + 1)}&gt;Next&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<hr />
+<h4>Component 3: Available Campaigns List</h4>
+<p><strong>File</strong>: <code>customer-web/src/components/rewards/AvailableCampaigns.tsx</code></p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+
+export function AvailableCampaigns() {
+  const [campaigns, setCampaigns] = useState([]);
+
+  useEffect(() =&gt; {
+    fetch('/api/campaigns/available', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+      .then(res =&gt; res.json())
+      .then(data =&gt; setCampaigns(data.campaigns));
+  }, []);
+
+  return (
+    &lt;div&gt;
+      &lt;h2 className=&quot;text-xl font-bold mb-4&quot;&gt;Available Campaigns&lt;/h2&gt;
+      &lt;div className=&quot;grid grid-cols-1 md:grid-cols-2 gap-4&quot;&gt;
+        {campaigns.map(campaign =&gt; (
+          &lt;Card key={campaign.id} className=&quot;p-4&quot;&gt;
+            &lt;div className=&quot;flex justify-between items-start&quot;&gt;
+              &lt;div&gt;
+                &lt;h3 className=&quot;font-bold text-lg&quot;&gt;{campaign.name}&lt;/h3&gt;
+                &lt;p className=&quot;text-sm text-gray-600&quot;&gt;{campaign.code}&lt;/p&gt;
+                &lt;p className=&quot;mt-2&quot;&gt;{campaign.description}&lt;/p&gt;
+              &lt;/div&gt;
+              {campaign.isEnrolled ? (
+                &lt;span className=&quot;badge bg-green-100 text-green-800&quot;&gt;Enrolled&lt;/span&gt;
+              ) : (
+                &lt;button className=&quot;btn btn-primary btn-sm&quot;&gt;Join&lt;/button&gt;
+              )}
+            &lt;/div&gt;
+            &lt;div className=&quot;mt-4 text-xs text-gray-500&quot;&gt;
+              Valid: {new Date(campaign.startAt).toLocaleDateString()} - {new Date(campaign.endAt).toLocaleDateString()}
+            &lt;/div&gt;
+          &lt;/Card&gt;
+        ))}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<hr />
+<h2>Phase 3: Admin Analytics &amp; Monitoring</h2>
+<h3>3.1 Admin API Endpoints</h3>
+<p><strong>File</strong>: <code>admin-api/Controllers/AnalyticsController.cs</code></p>
+<h4>Endpoint 1: Campaign Performance</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;campaigns/{id}/analytics&quot;)]
+public async Task&lt;IActionResult&gt; GetCampaignAnalytics(string id)
+{
+    var campaign = await _db.Campaigns.FindAsync(id);
+    if (campaign == null) return NotFound();
+
+    // Get execution stats
+    var executions = await _db.CampaignExecutions
+        .Where(ce =&gt; ce.CampaignId.ToString() == id)
+        .ToListAsync();
+
+    var uniqueMembers = executions.Select(e =&gt; e.MemberId).Distinct().Count();
+    var totalRewards = executions.Count;
+
+    // Calculate total points awarded
+    var totalPoints = executions
+        .Select(e =&gt; JsonSerializer.Deserialize&lt;Dictionary&lt;string, object&gt;&gt;(e.ExecutionResultJson))
+        .Where(r =&gt; r.ContainsKey(&quot;points&quot;))
+        .Sum(r =&gt; Convert.ToDecimal(r[&quot;points&quot;]));
+
+    // Group by date
+    var dailyStats = executions
+        .GroupBy(e =&gt; e.ExecutedAt.Date)
+        .Select(g =&gt; new
+        {
+            date = g.Key,
+            count = g.Count(),
+            uniqueMembers = g.Select(e =&gt; e.MemberId).Distinct().Count()
+        })
+        .OrderBy(s =&gt; s.date)
+        .ToList();
+
+    return Ok(new
+    {
+        campaign = new
+        {
+            id = campaign.Id,
+            name = campaign.Name,
+            code = campaign.Code,
+            status = campaign.Status
+        },
+        stats = new
+        {
+            totalRewards,
+            uniqueMembers,
+            totalPoints,
+            averagePointsPerMember = uniqueMembers &gt; 0 ? totalPoints / uniqueMembers : 0
+        },
+        dailyStats
+    });
+}
+</code></pre>
+<hr />
+<h4>Endpoint 2: All Transactions View</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;transactions&quot;)]
+public async Task&lt;IActionResult&gt; GetAllTransactions(
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 50,
+    [FromQuery] string? userId = null,
+    [FromQuery] DateTime? startDate = null,
+    [FromQuery] DateTime? endDate = null)
+{
+    var query = _db.TransactionEvents.AsQueryable();
+
+    // Filters
+    if (!string.IsNullOrEmpty(userId))
+        query = query.Where(t =&gt; t.UserId == userId);
+
+    if (startDate.HasValue)
+        query = query.Where(t =&gt; t.CreatedAt &gt;= startDate.Value);
+
+    if (endDate.HasValue)
+        query = query.Where(t =&gt; t.CreatedAt &lt;= endDate.Value);
+
+    var total = await query.CountAsync();
+
+    var transactions = await query
+        .OrderByDescending(t =&gt; t.CreatedAt)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(t =&gt; new
+        {
+            id = t.Id,
+            transactionId = t.TransactionId,
+            userId = t.UserId,
+            amount = t.Amount,
+            createdAt = t.CreatedAt
+        })
+        .ToListAsync();
+
+    // Get campaign executions for these transactions
+    var txIds = transactions.Select(t =&gt; t.transactionId).ToList();
+    var executions = await _db.CampaignExecutions
+        .Where(ce =&gt; txIds.Contains(ce.TransactionId))
+        .ToListAsync();
+
+    var result = transactions.Select(t =&gt; new
+    {
+        t.id,
+        t.transactionId,
+        t.userId,
+        t.amount,
+        t.createdAt,
+        campaignsMatched = executions.Count(e =&gt; e.TransactionId == t.transactionId),
+        totalPointsEarned = executions
+            .Where(e =&gt; e.TransactionId == t.transactionId)
+            .Sum(e =&gt; {
+                var result = JsonSerializer.Deserialize&lt;Dictionary&lt;string, object&gt;&gt;(e.ExecutionResultJson);
+                return result.ContainsKey(&quot;points&quot;) ? Convert.ToDecimal(result[&quot;points&quot;]) : 0;
+            })
+    });
+
+    return Ok(new
+    {
+        transactions = result,
+        pagination = new
+        {
+            page,
+            pageSize,
+            total,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        }
+    });
+}
+</code></pre>
+<hr />
+<h4>Endpoint 3: Campaign Leaderboard</h4>
+<pre><code class="language-csharp">[HttpGet(&quot;campaigns/{id}/leaderboard&quot;)]
+public async Task&lt;IActionResult&gt; GetCampaignLeaderboard(string id, [FromQuery] int limit = 10)
+{
+    var leaderboard = await _db.CampaignExecutions
+        .Where(ce =&gt; ce.CampaignId.ToString() == id)
+        .GroupBy(ce =&gt; ce.MemberId)
+        .Select(g =&gt; new
+        {
+            memberId = g.Key,
+            rewardCount = g.Count(),
+            totalPoints = g.Sum(e =&gt; 
+                JsonSerializer.Deserialize&lt;Dictionary&lt;string, object&gt;&gt;(e.ExecutionResultJson)
+                    .ContainsKey(&quot;points&quot;) 
+                    ? Convert.ToDecimal(JsonSerializer.Deserialize&lt;Dictionary&lt;string, object&gt;&gt;(e.ExecutionResultJson)[&quot;points&quot;]) 
+                    : 0
+            ),
+            lastRewardAt = g.Max(e =&gt; e.ExecutedAt)
+        })
+        .OrderByDescending(m =&gt; m.totalPoints)
+        .Take(limit)
+        .ToListAsync();
+
+    return Ok(new { leaderboard });
+}
+</code></pre>
+<hr />
+<h3>3.2 Admin Web UI Components</h3>
+<h4>Component 1: Campaign Analytics Dashboard</h4>
+<p><strong>File</strong>: <code>admin-web/src/components/analytics/CampaignAnalytics.tsx</code></p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Card } from '@/components/ui/card';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+
+export function CampaignAnalytics() {
+  const { id } = useParams();
+  const [analytics, setAnalytics] = useState(null);
+
+  useEffect(() =&gt; {
+    fetch(`/api/analytics/campaigns/${id}/analytics`)
+      .then(res =&gt; res.json())
+      .then(data =&gt; setAnalytics(data));
+  }, [id]);
+
+  if (!analytics) return &lt;div&gt;Loading...&lt;/div&gt;;
+
+  return (
+    &lt;div className=&quot;space-y-6&quot;&gt;
+      &lt;h1 className=&quot;text-2xl font-bold&quot;&gt;{analytics.campaign.name} - Analytics&lt;/h1&gt;
+
+      {/* Stats Cards */}
+      &lt;div className=&quot;grid grid-cols-4 gap-4&quot;&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Total Rewards&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{analytics.stats.totalRewards}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Unique Members&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{analytics.stats.uniqueMembers}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Total Points&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{analytics.stats.totalPoints.toLocaleString()}&lt;/p&gt;
+        &lt;/Card&gt;
+        &lt;Card className=&quot;p-4&quot;&gt;
+          &lt;p className=&quot;text-sm text-gray-600&quot;&gt;Avg Points/Member&lt;/p&gt;
+          &lt;p className=&quot;text-3xl font-bold&quot;&gt;{Math.round(analytics.stats.averagePointsPerMember)}&lt;/p&gt;
+        &lt;/Card&gt;
+      &lt;/div&gt;
+
+      {/* Daily Stats Chart */}
+      &lt;Card className=&quot;p-6&quot;&gt;
+        &lt;h2 className=&quot;text-xl font-bold mb-4&quot;&gt;Daily Performance&lt;/h2&gt;
+        &lt;LineChart width={800} height={300} data={analytics.dailyStats}&gt;
+          &lt;CartesianGrid strokeDasharray=&quot;3 3&quot; /&gt;
+          &lt;XAxis dataKey=&quot;date&quot; /&gt;
+          &lt;YAxis /&gt;
+          &lt;Tooltip /&gt;
+          &lt;Line type=&quot;monotone&quot; dataKey=&quot;count&quot; stroke=&quot;#8884d8&quot; name=&quot;Rewards&quot; /&gt;
+          &lt;Line type=&quot;monotone&quot; dataKey=&quot;uniqueMembers&quot; stroke=&quot;#82ca9d&quot; name=&quot;Members&quot; /&gt;
+        &lt;/LineChart&gt;
+      &lt;/Card&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<hr />
+<h4>Component 2: Transaction History Table</h4>
+<p><strong>File</strong>: <code>admin-web/src/components/analytics/TransactionHistory.tsx</code></p>
+<pre><code class="language-tsx">import { useEffect, useState } from 'react';
+import { Table } from '@/components/ui/table';
+
+export function TransactionHistory() {
+  const [data, setData] = useState(null);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({
+    userId: '',
+    startDate: '',
+    endDate: ''
+  });
+
+  useEffect(() =&gt; {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      ...filters
+    });
+
+    fetch(`/api/analytics/transactions?${params}`)
+      .then(res =&gt; res.json())
+      .then(data =&gt; setData(data));
+  }, [page, filters]);
+
+  return (
+    &lt;div&gt;
+      &lt;h1 className=&quot;text-2xl font-bold mb-4&quot;&gt;Transaction History&lt;/h1&gt;
+
+      {/* Filters */}
+      &lt;div className=&quot;flex gap-4 mb-4&quot;&gt;
+        &lt;input
+          type=&quot;text&quot;
+          placeholder=&quot;User ID&quot;
+          value={filters.userId}
+          onChange={e =&gt; setFilters({...filters, userId: e.target.value})}
+          className=&quot;input&quot;
+        /&gt;
+        &lt;input
+          type=&quot;date&quot;
+          value={filters.startDate}
+          onChange={e =&gt; setFilters({...filters, startDate: e.target.value})}
+          className=&quot;input&quot;
+        /&gt;
+        &lt;input
+          type=&quot;date&quot;
+          value={filters.endDate}
+          onChange={e =&gt; setFilters({...filters, endDate: e.target.value})}
+          className=&quot;input&quot;
+        /&gt;
+      &lt;/div&gt;
+
+      {/* Table */}
+      &lt;Table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th&gt;Transaction ID&lt;/th&gt;
+            &lt;th&gt;User ID&lt;/th&gt;
+            &lt;th&gt;Amount&lt;/th&gt;
+            &lt;th&gt;Campaigns Matched&lt;/th&gt;
+            &lt;th&gt;Points Earned&lt;/th&gt;
+            &lt;th&gt;Date&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {data?.transactions.map(tx =&gt; (
+            &lt;tr key={tx.id}&gt;
+              &lt;td&gt;{tx.transactionId}&lt;/td&gt;
+              &lt;td&gt;{tx.userId}&lt;/td&gt;
+              &lt;td&gt;${tx.amount}&lt;/td&gt;
+              &lt;td&gt;{tx.campaignsMatched}&lt;/td&gt;
+              &lt;td className=&quot;text-green-600&quot;&gt;+{tx.totalPointsEarned}&lt;/td&gt;
+              &lt;td&gt;{new Date(tx.createdAt).toLocaleString()}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/Table&gt;
+
+      {/* Pagination */}
+      &lt;div className=&quot;flex justify-center gap-2 mt-4&quot;&gt;
+        &lt;button onClick={() =&gt; setPage(p =&gt; Math.max(1, p - 1))}&gt;Previous&lt;/button&gt;
+        &lt;span&gt;Page {page} of {data?.pagination.totalPages}&lt;/span&gt;
+        &lt;button onClick={() =&gt; setPage(p =&gt; p + 1)}&gt;Next&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}
+</code></pre>
+<hr />
+<h2>Phase 4: Campaign Enrollment (Optional)</h2>
+<h3>4.1 Enrollment API</h3>
+<p><strong>File</strong>: <code>customer-api/Controllers/EnrollmentController.cs</code></p>
+<pre><code class="language-csharp">[HttpPost(&quot;campaigns/{id}/enroll&quot;)]
+public async Task&lt;IActionResult&gt; EnrollInCampaign(string id)
+{
+    var userId = User.FindFirst(&quot;sub&quot;)?.Value;
+
+    // Check if campaign exists and is active
+    var campaign = await _db.Campaigns.FindAsync(id);
+    if (campaign == null || campaign.Status != &quot;ACTIVE&quot;)
+        return NotFound(&quot;Campaign not found or inactive&quot;);
+
+    // Check if already enrolled
+    var existing = await _db.CampaignEnrollments
+        .FirstOrDefaultAsync(e =&gt; e.CampaignId == id &amp;&amp; e.MemberId == userId);
+
+    if (existing != null)
+        return BadRequest(&quot;Already enrolled&quot;);
+
+    // Create enrollment
+    var enrollment = new CampaignEnrollment
+    {
+        CampaignId = id,
+        MemberId = userId,
+        EnrolledAt = DateTime.UtcNow,
+        Status = &quot;ACTIVE&quot;
+    };
+
+    _db.CampaignEnrollments.Add(enrollment);
+    await _db.SaveChangesAsync();
+
+    return Ok(new { message = &quot;Successfully enrolled&quot;, enrollment });
+}
+</code></pre>
+<hr />
+<h2>Summary &amp; Priorities</h2>
+<h3>High Priority (Do First) 🔴</h3>
+<ol>
+<li>✅ <strong>Member Points Balance Table</strong> - Core data model</li>
+<li>✅ <strong>Points Transaction History</strong> - Audit trail</li>
+<li>✅ <strong>Points Balance Handler</strong> - Worker to update balances</li>
+<li>✅ <strong>Customer Points API</strong> - GET /me/points, /me/points/history</li>
+<li>✅ <strong>Customer Points UI</strong> - PointsBalance widget, PointsHistory table</li>
+</ol>
+<h3>Medium Priority (Do Next) 🟡</h3>
+<ol>
+<li>✅ <strong>Campaign Executions API</strong> - GET /me/campaigns/rewards</li>
+<li>✅ <strong>Admin Transaction History</strong> - GET /analytics/transactions</li>
+<li>✅ <strong>Campaign Analytics API</strong> - GET /campaigns/{id}/analytics</li>
+<li>✅ <strong>Admin Analytics UI</strong> - Dashboard with charts</li>
+</ol>
+<h3>Low Priority (Nice to Have) 🟢</h3>
+<ol>
+<li>✅ <strong>Campaign Enrollments</strong> - Table and API</li>
+<li>✅ <strong>Available Campaigns API</strong> - GET /campaigns/available</li>
+<li>✅ <strong>Enrollment UI</strong> - Join campaign button</li>
+<li>✅ <strong>Leaderboard</strong> - Top performers per campaign</li>
+</ol>
+<hr />
+<h2>Next Steps</h2>
+<ol>
+<li><strong>Start with Phase 1.1-1.3</strong>: Create database tables</li>
+<li><strong>Implement Phase 1.4</strong>: Points balance consumer in worker</li>
+<li><strong>Test end-to-end</strong>: Create transaction → Points updated</li>
+<li><strong>Build Phase 2</strong>: Customer APIs and UI</li>
+<li><strong>Add Phase 3</strong>: Admin analytics</li>
+<li><strong>(Optional) Phase 4</strong>: Campaign enrollment</li>
+</ol>
+<p>This will give you a <strong>complete, production-ready campaign system</strong> with full visibility for both customers and admins! 🚀</p></body></html>

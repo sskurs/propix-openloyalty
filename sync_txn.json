@@ -1,0 +1,7 @@
+{
+    "transaction_id": "TXN-SYNC-TEST-004",
+    "user_id": "CUST-1001",
+    "amount": 10000,
+    "items": [],
+    "gross_value": 10000
+}
